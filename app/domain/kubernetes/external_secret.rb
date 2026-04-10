@@ -27,7 +27,8 @@ module Kubernetes
           data: data_refs.map do |ref|
             {
               secretKey: ref[:secret_key],
-              remoteRef: { key: ref[:key], property: ref[:property] }
+              # The new SDK requires "item/field" as the key rather than separate key/property
+              remoteRef: { key: "#{ref[:key]}/#{ref[:property]}" }
             }
           end
         }

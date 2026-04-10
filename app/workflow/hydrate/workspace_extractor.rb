@@ -29,26 +29,20 @@ module Workflow
 
       private
 
-      def load_path(workspace, fs_path, virtual_prefix)
+      def load_path(workspace, fs_path, virtual_prefix, base_fs_path = fs_path)
         return unless @fs.directory_exists?(fs_path)
 
         @fs.path_entries(fs_path).each do |src_file|
-          next if @fs.directory_exists?(src_file)
+          if @fs.directory_exists?(src_file)
+            load_path(workspace, src_file, virtual_prefix, base_fs_path)
+            next
+          end
 
-          filename = @fs.base_filename(src_file)
-          virtual_path = "#{virtual_prefix}/#{filename}"
-          ext = @fs.extension(filename)
+          relative_filename = src_file.sub("#{base_fs_path}/", '')
+          virtual_path = "#{virtual_prefix}/#{relative_filename}"
 
-          workspace.manifests[virtual_path] = if %w[.yaml .yml].include?(ext)
-                                                # kustomization is usually singular hash, but we store stream array for universality unless singular is guaranteed
-                                                if %w[kustomization.yaml kustomization.yml].include?(filename)
-                                                  @fs.read_yaml(src_file)
-                                                else
-                                                  @fs.read_yaml_stream(src_file)
-                                                end
-                                              else
-                                                @fs.read_file(src_file)
-                                              end
+          workspace.manifests[virtual_path] =
+            @fs.yaml?(relative_filename) ? @fs.read_yaml(src_file) : @fs.read_file(src_file)
         end
       end
     end

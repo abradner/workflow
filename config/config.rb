@@ -10,18 +10,17 @@ class Config
 
   def initialize
     # Source is the immutable read-only clone
-
-    @source_dir = File.expand_path(ENV.fetch('SOURCE_DIR'), __dir__)
+    @source_dir = File.expand_path(ENV.fetch('SOURCE_DIR'))
 
     # Dest is the GitOps repository for workloads
-    @dest_dir = File.expand_path(ENV.fetch('DEST_DIR'), __dir__)
+    @dest_dir = File.expand_path(ENV.fetch('DEST_DIR'))
 
     # Cluster Apps Dir is where the ArgoCD App-of-Apps manifests go
-    @cluster_apps_dir = File.expand_path(ENV.fetch('CLUSTER_APPS_DIR'), __dir__)
+    @cluster_apps_dir = File.expand_path(ENV.fetch('CLUSTER_APPS_DIR'))
 
     # Talos bootstrap configuration
     @talos_item_id = ENV.fetch('OP_TALOS_ITEM_ID', nil)
-    @talos_template_dir = File.expand_path(ENV.fetch('TALOS_TEMPLATE_DIR'), __dir__)
+    @talos_template_dir = File.expand_path(ENV.fetch('TALOS_TEMPLATE_DIR'))
 
     # Source environment for mapping and extraction
     @source_env = ENV.fetch('SOURCE_ENV')

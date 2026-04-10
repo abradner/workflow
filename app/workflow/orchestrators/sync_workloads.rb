@@ -28,7 +28,8 @@ module Workflow
           Transformers::PullSecretInjector.new(
             registry_hostname: @config.registry_hostname,
             registry_1p_item_id: @config.registry_1p_item_id,
-            external_secrets_api_version: @config.external_secrets_api_version
+            external_secrets_api_version: @config.external_secrets_api_version,
+            project_name: @config.project_name
           ),
           Transformers::ServiceAbstractionLinker.new(
             project_name: @config.project_name,
@@ -49,18 +50,26 @@ module Workflow
           context.logger.info "Extracting workspace for #{app_name}"
           # Pure Extract
           workspace = @extractor.extract(app_name)
-          context.logger.info "Extracted #{workspace.manifests.keys.count} initial files: #{workspace.manifests.keys.join(', ')}"
+          context.logger.debug "Extracted #{workspace.manifests.keys.count} initial files: #{workspace.manifests.keys.join(', ')}"
 
           # Pure Sequenced Transform Pipeline
           @transformers.each do |transformer|
-            context.logger.info "Running #{transformer.class.name.split('::').last}..."
+            context.logger.debug "Running #{transformer_name(transformer)}..."
             workspace = transformer.call(workspace)
           end
 
-          context.logger.info "Final planned workspace has #{workspace.manifests.keys.count} files."
+          context.logger.debug "Final planned workspace has #{workspace.manifests.keys.count} files."
           @planned_workspaces << workspace
         end
       end
+
+      private
+      
+      def transformer_name(transformer)
+        transformer.class.name.split('::').last
+      end
+
+      public
 
       def commit_phase(context)
         # 100% Side-effect free execution loop. 
@@ -73,15 +82,11 @@ module Workflow
             # Reconstruct the absolute path mapping
             dest_file = File.join(@config.dest_dir, workspace.app_name, virtual_path)
             
-            context.logger.info " -> Writing #{dest_file}"
+            context.logger.debug " -> Writing #{dest_file}"
             @fs.create_directory(File.dirname(dest_file))
 
-            if ['.yaml', '.yml'].include?(@fs.extension(dest_file))
-              if content.is_a?(Array)
-                @fs.write_yaml_stream(dest_file, content)
-              else
-                @fs.write_yaml(dest_file, content)
-              end
+            if @fs.yaml?(dest_file)
+              @fs.write_yaml(dest_file, content)
             else
               @fs.write_file(dest_file, content)
             end

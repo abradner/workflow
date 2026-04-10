@@ -19,6 +19,10 @@ OptionParser.new do |opts|
     options[:dry_run] = v
   end
 
+  opts.on('-v', '--verbose', 'Enable debug logging') do |v|
+    options[:verbose] = v
+  end
+
   opts.on('-h', '--help', 'Prints this help') do
     puts opts
     exit
@@ -28,7 +32,7 @@ end.parse!(ARGV)
 command = ARGV.shift
 
 config = Config.new
-logger = Utils::ColorizedLogger.new($stdout)
+logger = Utils::ColorizedLogger.new($stdout, level: options[:verbose] ? :debug : :info)
 context = Workflow::ExecutionContext.new(config: config, logger: logger, options: options)
 
 orchestrators = case command

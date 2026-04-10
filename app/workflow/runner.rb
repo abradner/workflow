@@ -67,7 +67,7 @@ module Workflow
         action = HYDRATION_ACTIONS[predicate]
         raise "Unknown predicate: #{predicate}" unless action
 
-        @logger.debug "Hydrating :#{predicate}..."
+        @logger.subsection "Hydrating: #{predicate}...", ''
         action.call(@context)
       end
     end
@@ -77,7 +77,7 @@ module Workflow
         next unless orchestrator.respond_to?(phase_method)
 
         orchestrator_name = orchestrator.class.name.split('::').last
-        @logger.debug "#{phase_name} phase: #{orchestrator_name}"
+        @logger.subsection "#{phase_name}: #{orchestrator_name}", ''
 
         orchestrator.send(phase_method, @context)
       end

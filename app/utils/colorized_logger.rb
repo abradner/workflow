@@ -71,12 +71,15 @@ module Utils
       @logger.info ''
     end
 
-    def subsection(heading, subheading)
+    def subsection(heading, subheading = '')
       @logger.info ''
       @logger.info heading
       @logger.info '-' * [40, heading.length, subheading.length].max
-      @logger.info subheading
-      @logger.info ''
+
+      unless subheading.empty?
+        @logger.info subheading
+        @logger.info ''
+      end
     end
 
     private

@@ -43,19 +43,8 @@ module Services
       File.write(path, content)
     end
 
-    def read_yaml_stream(path)
-      YAML.safe_load_stream(File.read(path))
-        &.compact
-          .then { |docs| deep_symbolize_keys(docs) }
-    end
-
-    def write_yaml_stream(path, docs)
-      File.open(path, 'w') do |f|
-        docs.each do |doc|
-          f.puts '---'
-          f.puts doc.to_yaml(line_width: -1).sub('---', '').strip
-        end
-      end
+    def yaml?(path)
+      ['.yaml', '.yml'].include?(extension(path))
     end
 
     def read_yaml(path)
@@ -63,21 +52,18 @@ module Services
     end
 
     def write_yaml(path, doc)
-      File.write(path, doc.to_yaml(line_width: -1).sub('---', '').strip)
-    end
-
-    private
-
-    def deep_symbolize_keys(obj)
-      if obj.is_a?(Hash)
-        obj.each_with_object({}) do |(k, v), result|
-          result[k.to_sym] = deep_symbolize_keys(v)
-        end
-      elsif obj.is_a?(Array)
-        obj.map { |item| deep_symbolize_keys(item) }
+      if doc.is_a?(Array) && doc.any? { |d| d.is_a?(Hash) && d.key?(:kind) }
+        # Treat as Kubernetes multi-document stream
+        yaml_content = doc.map do |d| 
+          d.to_yaml(line_width: -1, stringify_names: true).sub(/\A---\n/, '')
+        end.join("---\n")
       else
-        obj
+        # Treat as scalar configuration hash or JSON array patch stream
+        yaml_content = doc.to_yaml(line_width: -1, stringify_names: true)
+        yaml_content = yaml_content.sub(/\A---\n/, '')
       end
+      
+      File.write(path, yaml_content)
     end
   end
 end
