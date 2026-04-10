@@ -7,6 +7,8 @@ module Services
       '.confluent.cloud' => 'kafka'
     }.freeze
 
+    KNOWN_SERVICES = %w[pg kafka redis].freeze
+
     # Match a hostname against suffix-based endpoint mappings.
     # Returns the mapped resource name (e.g. 'pg', 'kafka') or nil if no match.
     def self.match_endpoint(hostname)

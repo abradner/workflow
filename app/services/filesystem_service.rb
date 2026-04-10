@@ -31,20 +31,8 @@ module Services
       Dir.exist?(path)
     end
 
-    def file_exists?(path)
-      File.exist?(path)
-    end
-
     def create_directory(path)
       FileUtils.mkdir_p(path)
-    end
-
-    def copy_directory(src, dest)
-      FileUtils.cp_r(src, dest)
-    end
-
-    def copy_file(src, dest)
-      FileUtils.cp(src, dest)
     end
 
     def read_file(path)
@@ -56,7 +44,9 @@ module Services
     end
 
     def read_yaml_stream(path)
-      YAML.safe_load_stream(File.read(path), symbolize_names: true).compact
+      YAML.safe_load_stream(File.read(path))
+        &.compact
+          .then { |docs| deep_symbolize_keys(docs) }
     end
 
     def write_yaml_stream(path, docs)
@@ -74,6 +64,20 @@ module Services
 
     def write_yaml(path, doc)
       File.write(path, doc.to_yaml(line_width: -1).sub('---', '').strip)
+    end
+
+    private
+
+    def deep_symbolize_keys(obj)
+      if obj.is_a?(Hash)
+        obj.each_with_object({}) do |(k, v), result|
+          result[k.to_sym] = deep_symbolize_keys(v)
+        end
+      elsif obj.is_a?(Array)
+        obj.map { |item| deep_symbolize_keys(item) }
+      else
+        obj
+      end
     end
   end
 end
