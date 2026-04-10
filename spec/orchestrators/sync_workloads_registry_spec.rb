@@ -35,8 +35,9 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
 
       allow(fs_mock).to receive(:create_directory)
 
-      allow(fs_mock).to receive(:directory_exists?).with('/src/test-app/base').and_return(true)
-      allow(fs_mock).to receive(:directory_exists?).with('/src/test-app/overlay/dev3').and_return(false)
+      allow(fs_mock).to receive(:directory_exists?) do |path|
+        path == '/src/test-app/base'
+      end
     end
 
     it 'generates registry-pull-secret.yaml with correct ExternalSecret structure' do
@@ -44,17 +45,16 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
 
       orchestrator.act_phase(context)
 
-      expect(fs_mock).to receive(:write_yaml_stream).with(
+      expect(fs_mock).to receive(:write_yaml).with(
         '/dest/test-app/base/registry-pull-secret.yaml',
         anything
-      ) do |_path, docs|
-        doc = docs.first
+      ) do |_path, doc|
         expect(doc[:apiVersion]).to eq('external-secrets.io/v1')
         expect(doc[:kind]).to eq('ExternalSecret')
-        expect(doc[:metadata][:name]).to eq('registry-pull-secret')
+        expect(doc[:metadata][:name]).to eq('test-app-registry')
 
         target = doc[:spec][:target]
-        expect(target[:name]).to eq('registry-pull-secret')
+        expect(target[:name]).to eq('test-app-registry')
         expect(target[:template][:type]).to eq('kubernetes.io/dockerconfigjson')
 
         dockerconfig = target[:template][:data]['.dockerconfigjson']
@@ -94,13 +94,13 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
       allow(fs_mock).to receive(:path_entries).with('/src/test-app/base').and_return([
                                                                                        '/src/test-app/base/deployment.yaml'
                                                                                      ])
-      allow(fs_mock).to receive(:read_yaml_stream).with('/src/test-app/base/deployment.yaml').and_return([deployment_doc])
+      allow(fs_mock).to receive(:read_yaml).with('/src/test-app/base/deployment.yaml').and_return(deployment_doc)
 
       orchestrator.act_phase(context)
 
-      expect(fs_mock).to receive(:write_yaml_stream).with('/dest/test-app/base/deployment.yaml',
-                                                          anything) do |_path, docs|
-        template_spec = docs.first.dig(:spec, :template, :spec)
+      expect(fs_mock).to receive(:write_yaml).with('/dest/test-app/base/deployment.yaml',
+                                                          anything) do |_path, doc|
+        template_spec = doc.dig(:spec, :template, :spec)
         expect(template_spec).not_to have_key(:topologySpreadConstraints)
         expect(template_spec[:containers]).not_to be_empty
       end
@@ -118,13 +118,13 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
       allow(fs_mock).to receive(:path_entries).with('/src/test-app/base').and_return([
                                                                                        '/src/test-app/base/serviceaccount.yaml'
                                                                                      ])
-      allow(fs_mock).to receive(:read_yaml_stream).with('/src/test-app/base/serviceaccount.yaml').and_return([sa_doc])
+      allow(fs_mock).to receive(:read_yaml).with('/src/test-app/base/serviceaccount.yaml').and_return(sa_doc)
 
       orchestrator.act_phase(context)
 
-      expect(fs_mock).to receive(:write_yaml_stream).with('/dest/test-app/base/serviceaccount.yaml',
-                                                          anything) do |_path, docs|
-        expect(docs.first[:imagePullSecrets]).to eq([{ name: 'registry-pull-secret' }])
+      expect(fs_mock).to receive(:write_yaml).with('/dest/test-app/base/serviceaccount.yaml',
+                                                          anything) do |_path, doc|
+        expect(doc[:imagePullSecrets]).to eq([{ name: 'test-app-registry' }])
       end
 
       orchestrator.commit_phase(context)
@@ -141,13 +141,13 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
       allow(fs_mock).to receive(:path_entries).with('/src/test-app/base').and_return([
                                                                                        '/src/test-app/base/secrets.yaml'
                                                                                      ])
-      allow(fs_mock).to receive(:read_yaml_stream).with('/src/test-app/base/secrets.yaml').and_return([es_doc])
+      allow(fs_mock).to receive(:read_yaml).with('/src/test-app/base/secrets.yaml').and_return(es_doc)
 
       orchestrator.act_phase(context)
 
-      expect(fs_mock).to receive(:write_yaml_stream).with('/dest/test-app/base/secrets.yaml', anything) do |_path, docs|
-        expect(docs.first[:apiVersion]).to eq('external-secrets.io/v1')
-        expect(docs.first[:spec][:secretStoreRef][:name]).to eq('onepassword-backend')
+      expect(fs_mock).to receive(:write_yaml).with('/dest/test-app/base/secrets.yaml', anything) do |_path, doc|
+        expect(doc[:apiVersion]).to eq('external-secrets.io/v1')
+        expect(doc[:spec][:secretStoreRef][:name]).to eq('onepassword-backend')
       end
 
       orchestrator.commit_phase(context)
@@ -163,13 +163,13 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
       allow(fs_mock).to receive(:path_entries).with('/src/test-app/base').and_return([
                                                                                        '/src/test-app/base/kustomization.yaml'
                                                                                      ])
-      allow(fs_mock).to receive(:read_yaml_stream).with('/src/test-app/base/kustomization.yaml').and_return([kustomization_doc])
+      allow(fs_mock).to receive(:read_yaml).with('/src/test-app/base/kustomization.yaml').and_return(kustomization_doc)
 
       orchestrator.act_phase(context)
 
-      expect(fs_mock).to receive(:write_yaml_stream).with('/dest/test-app/base/kustomization.yaml',
+      expect(fs_mock).to receive(:write_yaml).with('/dest/test-app/base/kustomization.yaml',
                                                           anything) do |_path, docs|
-        expect(docs.first[:resources]).to include('registry-pull-secret.yaml')
+        expect(docs[:resources]).to include('registry-pull-secret.yaml')
       end
 
       orchestrator.commit_phase(context)
