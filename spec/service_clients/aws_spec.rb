@@ -12,8 +12,8 @@ RSpec.describe ServiceClients::Aws do
       mock_status = instance_double(Process::Status, success?: true)
 
       expect(Open3).to receive(:capture3)
-        .with('aws secretsmanager list-secrets --filter Key="name",Values="dev3"')
-        .and_return([mock_stdout, '', mock_status])
+        .with('aws secretsmanager list-secrets --filter Key="name",Values="dev3","dev/dev3"')
+        .and_return([mock_stdout, '', instance_double(Process::Status, success?: true)])
 
       expect(client.list_secrets('dev3')).to eq([{ 'Name' => 'dev3/secret' }])
     end

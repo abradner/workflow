@@ -5,7 +5,7 @@ module Workflow
   # Holds configuration and memoized results.
   class ExecutionContext
     attr_reader :config, :logger, :options
-    attr_accessor :apps, :prompt
+    attr_accessor :apps, :prompt, :saml_credentials_by_env
 
     # @param config [Config] application configuration
     # @param logger [ColorizedLogger] logger instance
@@ -15,6 +15,7 @@ module Workflow
       @logger = logger
       @options = options
       @apps = []
+      @saml_credentials_by_env = {}
     end
 
     # ─── Predicate Checks (used by Runner for hydration) ────────
@@ -22,6 +23,11 @@ module Workflow
     # @return [Boolean] true if discovery has run
     def discovery_completed?
       !apps.empty?
+    end
+
+    # @return [Boolean] true if SAML Credentials have been extracted
+    def saml_credentials_extracted?
+      !saml_credentials_by_env.empty?
     end
 
     # ─── Option Accessors ───────────────────────────────────────

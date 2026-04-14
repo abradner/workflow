@@ -62,9 +62,8 @@ RSpec.describe Workflow::Orchestrators::SyncWorkloads, 'registry and backport tr
         expect(parsed['auths']).to have_key('mock.registry.test')
 
         expect(doc[:spec][:data].length).to eq(2)
-        expect(doc[:spec][:data][0][:remoteRef][:key]).to eq('mock_item_id')
-        expect(doc[:spec][:data][0][:remoteRef][:property]).to eq('username')
-        expect(doc[:spec][:data][1][:remoteRef][:property]).to eq('password')
+        expect(doc[:spec][:data][0][:remoteRef][:key]).to eq('mock_item_id/username')
+        expect(doc[:spec][:data][1][:remoteRef][:key]).to eq('mock_item_id/password')
 
         store_ref = doc[:spec][:secretStoreRef]
         expect(store_ref[:name]).to eq('onepassword-backend')

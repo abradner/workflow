@@ -7,7 +7,7 @@ module ServiceClients
   # Wrapper around AWS CLI commands
   class Aws
     def list_secrets(env)
-      stdout, stderr, status = Open3.capture3("aws secretsmanager list-secrets --filter Key=\"name\",Values=\"#{env}\"")
+      stdout, stderr, status = Open3.capture3("aws secretsmanager list-secrets --filter Key=\"name\",Values=\"#{env}\",\"dev/#{env}\"")
       raise "Failed to list AWS Secrets: #{stderr}" unless status.success?
 
       JSON.parse(stdout)['SecretList']

@@ -25,6 +25,9 @@ RSpec.describe 'End-to-End Workflows' do
                                        base_filename: 'wtf-core', path_entries: [])
 
     allow(Services::FilesystemService).to receive(:new).and_return(fs_mock)
+
+    stub_request(:any, /aws/)
+    stub_request(:any, /pmn-keycloak/)
   end
 
   describe 'SyncWorkloads Orchestrator' do

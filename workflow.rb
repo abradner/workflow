@@ -10,6 +10,7 @@ require_relative 'app/workflow/orchestrators/sync_workloads'
 require_relative 'app/workflow/orchestrators/generate_argocd'
 require_relative 'app/workflow/orchestrators/sync_1password'
 require_relative 'app/workflow/orchestrators/render_talos'
+require_relative 'app/workflow/orchestrators/setup_keycloak'
 
 options = {}
 OptionParser.new do |opts|
@@ -44,8 +45,10 @@ orchestrators = case command
                   [Workflow::Orchestrators::Sync1Password.new(config: config)]
                 when 'render-talos'
                   [Workflow::Orchestrators::RenderTalos.new(config: config)]
+                when 'setup-keycloak'
+                  [Workflow::Orchestrators::SetupKeycloak.new(config: config)]
                 else
-                  logger.fatal "Unknown command: #{command}. Use 'sync', 'setup-argo', 'sync-1p', or 'render-talos'."
+                  logger.fatal "Unknown command: #{command}. Use 'sync', 'setup-argo', 'sync-1p', 'render-talos', or 'setup-keycloak'."
                   exit 1
                 end
 

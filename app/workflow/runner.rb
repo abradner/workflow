@@ -3,6 +3,7 @@
 require_relative 'execution_context'
 require_relative 'orchestrator'
 require_relative 'hydrate/discovery'
+require_relative 'hydrate/saml_credentials'
 
 module Workflow
   # Runs the workflow by hydrating state to satisfy orchestrator predicates,
@@ -11,7 +12,8 @@ module Workflow
     # Mapping of predicates to hydration actions
     # Order matters: earlier predicates should be satisfied first
     HYDRATION_ACTIONS = {
-      discovery_completed: ->(ctx) { Hydrate::Discovery.call(ctx) }
+      discovery_completed: ->(ctx) { Hydrate::Discovery.call(ctx) },
+      saml_credentials_extracted: ->(ctx) { Hydrate::SamlCredentials.call(ctx) }
     }.freeze
 
     # @param context [ExecutionContext] shared workflow state
