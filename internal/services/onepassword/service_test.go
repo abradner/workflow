@@ -2,6 +2,7 @@ package onepassword_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,6 +58,20 @@ func TestIngestVaultItem_BuildsSectionsAndFieldsFromExtractedSecrets(t *testing.
 	assert.Equal(t, concealedField("wtf-ext-keystore", "password", "base64EncodedString"), fields[2])
 	// Raw non-JSON string maps to a single "password" field.
 	assert.Equal(t, concealedField("wtf-raw-secret", "password", "raw_string_password"), fields[3])
+}
+
+func TestIngestVaultItem_EmptySecretsMarshalFieldsAsEmptyArray(t *testing.T) {
+	client := &fakeOpClient{}
+	svc := onepassword.New("wtf", client)
+
+	_, err := svc.IngestVaultItem(context.Background(), "dev4", nil)
+	require.NoError(t, err)
+
+	// A nil Go slice marshals to JSON `null`, which the 1Password item-create
+	// API can reject for a "fields" array - it must always be `[]`.
+	b, err := json.Marshal(client.gotItem["fields"])
+	require.NoError(t, err)
+	assert.JSONEq(t, `[]`, string(b))
 }
 
 func concealedField(sectionID, label, value string) map[string]any {

@@ -25,7 +25,9 @@ services:
       retries: 10
 
   temporal:
-    image: temporalio/auto-setup:latest
+    # Pinned (not :latest) so a given commit always runs against the same
+    # server build - bump deliberately, not automatically.
+    image: temporalio/auto-setup:1.29.7
     depends_on:
       postgresql:
         condition: service_healthy
@@ -39,7 +41,7 @@ services:
       - "7233:7233"
 
   temporal-ui:
-    image: temporalio/ui:latest
+    image: temporalio/ui:2.52.1
     depends_on:
       - temporal
     environment:

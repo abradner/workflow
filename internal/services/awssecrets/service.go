@@ -45,18 +45,29 @@ func NewWithClient(client Client) *Service {
 // ExtractSecrets lists every secret whose name matches env or "dev/env"
 // (mirroring the original tool's `--filter Key=name,Values=env,dev/env` CLI
 // invocation), then fetches each one's value.
+//
+// ListSecrets is paginated by the API itself (unlike the `aws` CLI command
+// this replaces, which paginates automatically) - a paginator walks every
+// page so an environment with more matching secrets than fit on one page
+// doesn't silently lose the rest.
 func (s *Service) ExtractSecrets(ctx context.Context, env string) ([]domain.ExtractedSecret, error) {
-	listOut, err := s.client.ListSecrets(ctx, &secretsmanager.ListSecretsInput{
+	paginator := secretsmanager.NewListSecretsPaginator(s.client, &secretsmanager.ListSecretsInput{
 		Filters: []types.Filter{
 			{Key: types.FilterNameStringTypeName, Values: []string{env, "dev/" + env}},
 		},
 	})
-	if err != nil {
-		return nil, fmt.Errorf("listing AWS secrets: %w", err)
+
+	var metas []types.SecretListEntry
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing AWS secrets: %w", err)
+		}
+		metas = append(metas, page.SecretList...)
 	}
 
-	secrets := make([]domain.ExtractedSecret, 0, len(listOut.SecretList))
-	for _, meta := range listOut.SecretList {
+	secrets := make([]domain.ExtractedSecret, 0, len(metas))
+	for _, meta := range metas {
 		name := aws.ToString(meta.Name)
 
 		valueOut, err := s.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(name)})

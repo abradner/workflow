@@ -6,7 +6,9 @@ This is a from-scratch Go rebuild of an earlier Ruby version of the same tool: s
 `.env`-driven configuration, same output - reimplemented with Temporal doing the orchestration
 instead of a hand-rolled Runner/Orchestrator framework. The original Ruby implementation is kept
 in full under [`ruby-legacy/`](ruby-legacy/) for side-by-side reference - it's not part of the Go
-module or build, just a frozen snapshot for comparison.
+module or build, just a frozen snapshot for comparison. See the
+[Ruby → Go File Map](AI_ONBOARDING.md#ruby--go-file-map) in `AI_ONBOARDING.md` for exactly which
+Go file replaces which Ruby file.
 
 There are five workflows, each its own CLI command:
 

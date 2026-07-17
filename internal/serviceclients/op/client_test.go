@@ -44,6 +44,15 @@ func TestCreateItem_PipesJSONToStdin(t *testing.T) {
 	assert.Equal(t, template["title"], sent["title"])
 }
 
+func TestCreateItem_TrimsTrailingNewline(t *testing.T) {
+	runner := &fakeRunner{stdout: "id=123\n"}
+	client := op.NewWithRunner(runner)
+
+	out, err := client.CreateItem(context.Background(), map[string]any{})
+	require.NoError(t, err)
+	assert.Equal(t, "id=123", out)
+}
+
 func TestCreateItem_WrapsFailure(t *testing.T) {
 	runner := &fakeRunner{err: errors.New("exit 1"), stderr: "not signed in"}
 	client := op.NewWithRunner(runner)

@@ -49,6 +49,102 @@ the Ruby version's hand-rolled `Runner`/`Orchestrator`/`needs`-predicate framewo
   `go.temporal.io/server/temporaltest`, external via `client.Dial`) and the shared
   workflow/activity registration list.
 
+## Ruby → Go File Map
+
+The full pre-rebuild Ruby implementation is kept at [`ruby-legacy/`](ruby-legacy/) for side-by-side
+reference (see the README's note on it). This is the file-by-file correspondence.
+
+**CLI entry point**
+
+| Ruby (`ruby-legacy/`) | Go |
+| --- | --- |
+| `workflow.rb` | `cmd/workflow/main.go`, `root.go`, `commands.go`, `run.go`, `worker.go` |
+| `config/config.rb` | `internal/config/config.go` |
+
+**Framework - superseded, not ported 1:1** (Temporal's workflow/activity model replaces the concept
+entirely; see "Architecture: Workflow Contract" below)
+
+| Ruby | Go |
+| --- | --- |
+| `app/workflow/orchestrator.rb` | *(none - `internal/workflows/*.go` are plain functions, no base class)* |
+| `app/workflow/runner.rb` | *(none - `internal/temporalutil/` + Temporal itself)* |
+| `app/workflow/execution_context.rb` | *(none - `workflow.Context` plus each workflow's own `Input`/`Result` structs)* |
+
+**Hydration → Activities** (no longer a separate predicate-driven phase - each workflow just calls
+the activity it needs)
+
+| Ruby | Go |
+| --- | --- |
+| `app/workflow/hydrate/discovery.rb` | `internal/activities/activities.go` (`DiscoverApps`) |
+| `app/workflow/hydrate/saml_credentials.rb` | `internal/activities/activities.go` (`FetchSamlCredentials`) + `internal/services/discoversamlcreds/service.go` |
+| `app/workflow/hydrate/workspace_extractor.rb` | `internal/services/workspaceextractor/extractor.go` |
+| `app/workflow/models/app_manifest_workspace.rb` | `internal/manifest/workspace.go` |
+
+**Orchestrators → Workflows** (one per CLI command)
+
+| Ruby | Go |
+| --- | --- |
+| `app/workflow/orchestrators/sync_workloads.rb` | `internal/workflows/syncworkloads.go` |
+| `app/workflow/orchestrators/generate_argocd.rb` | `internal/workflows/generateargocd.go` |
+| `app/workflow/orchestrators/sync_1password.rb` | `internal/workflows/sync1password.go` |
+| `app/workflow/orchestrators/render_talos.rb` | `internal/workflows/rendertalos.go` |
+| `app/workflow/orchestrators/setup_keycloak.rb` | `internal/workflows/setupkeycloak.go` |
+
+**Transformers** (pure manifest-mutation pipeline, run inline from `BuildAppFiles` - see below)
+
+| Ruby | Go |
+| --- | --- |
+| `app/workflow/transformers/base.rb` | `internal/manifest/dig.go` (`MutateYAML`) |
+| `app/workflow/transformers/environment_generator.rb` | `internal/transformers/environment_generator.go` |
+| `app/workflow/transformers/legacy_modernizer.rb` | `internal/transformers/legacy_modernizer.go` |
+| `app/workflow/transformers/pull_secret_injector.rb` | `internal/transformers/pull_secret_injector.go` |
+| `app/workflow/transformers/service_abstraction_linker.rb` | `internal/transformers/service_abstraction_linker.go` |
+| `app/workflow/transformers/one_password_saml_key_injector.rb` | `internal/transformers/onepassword_saml_key_injector.go` |
+
+**Domain**
+
+| Ruby | Go |
+| --- | --- |
+| `app/domain/saml_credentials.rb` | `internal/domain/saml_credentials.go` |
+| `app/domain/kubernetes/external_secret.rb` | `internal/domain/kubernetes/external_secret.go` |
+| `app/domain/kubernetes/http_route.rb` | `internal/domain/kubernetes/http_route.go` |
+| *(inline `{name:, string:, binary:}` hashes)* | `internal/domain/extracted_secret.go` *(new: given an explicit type)* |
+
+**Services**
+
+| Ruby | Go |
+| --- | --- |
+| `app/services/filesystem_service.rb` | `internal/services/filesystem/service.go` |
+| `app/services/aws_secrets_service.rb` | `internal/services/awssecrets/service.go` *(now calls the AWS SDK v2 directly)* |
+| `app/services/one_password_service.rb` | `internal/services/onepassword/service.go` |
+| `app/services/template_rendering_service.rb` | `internal/services/templaterendering/service.go` |
+| `app/services/keycloak_setup_service.rb` | `internal/services/keycloaksetup/service.go` |
+| `app/services/discover_saml_creds_service.rb` | `internal/services/discoversamlcreds/service.go` |
+| `app/services/endpoint_mapper.rb` | `internal/services/endpointmapper/endpoint_mapper.go` |
+
+**Service clients**
+
+| Ruby | Go |
+| --- | --- |
+| `app/service_clients/aws.rb` | *(none - folded into `internal/services/awssecrets`; no separate CLI-wrapper client since it's SDK-based now)* |
+| `app/service_clients/op.rb` | `internal/serviceclients/op/client.go` |
+| `app/service_clients/keycloak.rb` | `internal/serviceclients/keycloak/client.go` |
+
+**Utils**
+
+| Ruby | Go |
+| --- | --- |
+| `app/utils/colorized_logger.rb` | `internal/logging/logger.go` |
+
+**Tests**: each `spec/**/*_spec.rb` has a same-purpose `*_test.go` next to the Go file it covers
+(e.g. `spec/services/one_password_service_spec.rb` ↔ `internal/services/onepassword/service_test.go`);
+`spec/orchestrators/*_spec.rb` and `spec/workflow_e2e_spec.rb` are covered by
+`internal/workflows/*_test.go` using Temporal's `testsuite` package instead of RSpec doubles.
+
+**New in Go, no Ruby counterpart**: `internal/activities/` (the Temporal I/O boundary itself -
+Ruby had no equivalent framework concept) and `internal/temporalutil/` (embedded/external Temporal
+wiring).
+
 ## Architecture: Workflow Contract
 
 There's no orchestrator base class or `needs` predicate list to satisfy - each workflow is an

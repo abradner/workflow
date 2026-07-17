@@ -35,7 +35,7 @@ func (s *Service) IngestVaultItem(ctx context.Context, env string, extractedSecr
 	itemTitle := fmt.Sprintf("k8s-%s-%s", s.projectName, env)
 
 	sections := make([]map[string]any, 0, len(extractedSecrets))
-	var fields []map[string]any
+	fields := make([]map[string]any, 0, len(extractedSecrets))
 
 	for _, secret := range extractedSecrets {
 		sectionID := sanitizeSectionID(secret.Name)

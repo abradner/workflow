@@ -57,7 +57,7 @@ func (c *Client) CreateItem(ctx context.Context, item map[string]any) (string, e
 	if err != nil {
 		return "", fmt.Errorf("failed to create 1P item: %s", strings.TrimSpace(stderr))
 	}
-	return stdout, nil
+	return strings.TrimSpace(stdout), nil
 }
 
 // ReadNote returns the notesPlain field of a Secure Note item.
