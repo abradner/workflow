@@ -4,7 +4,9 @@ A Go + [Temporal](https://temporal.io) ETL pipeline for migrating, transforming 
 
 This is a from-scratch Go rebuild of an earlier Ruby version of the same tool: same jobs, same
 `.env`-driven configuration, same output - reimplemented with Temporal doing the orchestration
-instead of a hand-rolled Runner/Orchestrator framework.
+instead of a hand-rolled Runner/Orchestrator framework. The original Ruby implementation is kept
+in full under [`ruby-legacy/`](ruby-legacy/) for side-by-side reference - it's not part of the Go
+module or build, just a frozen snapshot for comparison.
 
 There are five workflows, each its own CLI command:
 
