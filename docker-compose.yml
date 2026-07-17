@@ -1,0 +1,69 @@
+# External Temporal mode: a real, persistent Temporal server plus a
+# long-lived worker - the setup you want for the more involved orchestration
+# jobs (setup-keycloak's minutes-long readiness polling, sync-1p, anything
+# you want visible in the Temporal Web UI or durable across restarts).
+#
+# Usage:
+#   docker compose up -d
+#   go run ./cmd/workflow sync --temporal=localhost:7233
+#   open http://localhost:8080   # Temporal Web UI
+#
+# For quick local one-off runs with zero setup, skip all of this and just
+# run a command with the default --temporal=embedded instead - see README.md.
+services:
+  postgresql:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    ports:
+      - "8080:8080"
+
+  worker:
+    build: .
+    depends_on:
+      - temporal
+    env_file:
+      - .env
+    command: ["worker", "--temporal=temporal:7233", "--verbose"]
+    volumes:
+      # SOURCE_DIR/DEST_DIR/CLUSTER_APPS_DIR/TALOS_TEMPLATE_DIR in .env are
+      # host paths the worker reads/writes directly - mount them into the
+      # container at the SAME paths so its view of the filesystem matches
+      # what .env describes. Adjust these to match your own .env.
+      - ${SOURCE_DIR}:${SOURCE_DIR}
+      - ${DEST_DIR}:${DEST_DIR}
+      - ${CLUSTER_APPS_DIR}:${CLUSTER_APPS_DIR}
+      - ${TALOS_TEMPLATE_DIR}:${TALOS_TEMPLATE_DIR}
+
+volumes:
+  postgresql-data:

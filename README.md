@@ -1,85 +1,112 @@
 # Workflow
 
-A modern, Ruby-first ETL pipeline for migrating, transforming and adapting things!
+A Go + [Temporal](https://temporal.io) ETL pipeline for migrating, transforming and adapting Kubernetes/GitOps things.
 
-Eventually this will be a pluggable toolkit, but right now there are 4 workflows:
+This is a from-scratch Go rebuild of an earlier Ruby version of the same tool: same jobs, same
+`.env`-driven configuration, same output - reimplemented with Temporal doing the orchestration
+instead of a hand-rolled Runner/Orchestrator framework.
 
-### RenderTalos
-**What:** Hydrates a talos cluster
+There are five workflows, each its own CLI command:
 
-**Why:** Look, the talos guides are great but sometimes it's better to see a working example
+### `sync` → SyncWorkloads
+**What:** Synchronizes Kustomize manifests for all workloads.
+**How:** Discovers apps, extracts `base/` + the source environment's overlay, runs a transformer
+pipeline (clone into every target env → modernize legacy Ingress/ExternalSecret shapes → inject a
+registry pull secret → link known external services to cluster-local DNS), and writes the result
+to the destination directory.
 
-**How:** Generates a talos cluster of manifests from template configurations using `1Password` Secure Note IDs to prepare for Talos Linux cluster deployment and bootstrap procedures.
+### `setup-argo` → GenerateArgocd
+**What:** Generates the core App-of-Apps ArgoCD `Application` manifests.
+**How:** One manifest per app × environment, mapped to `<project>-workloads/<app>/overlay/<env>`.
 
-### GenerateArgocd
-**What:** Generates the core App-of-Apps `Application` manifests for ArgoCD. 
+### `sync-1p` → Sync1Password
+**What:** Migrates secrets from AWS Secrets Manager to 1Password.
+**How:** Extracts secrets from AWS for the source environment, remaps them onto every target
+environment (refreshing the Keycloak SAML public key where one is reachable), and provisions one
+1Password Secure Note per environment.
 
-**Why:** Beats doing it manually! 
+### `render-talos` → RenderTalos
+**What:** Hydrates Talos cluster bootstrap templates.
+**How:** Reads a 1Password Secure Note containing `secrets.yaml` content, flattens it to
+dot-notation keys, and substitutes `{{ dotted.key }}` placeholders in every `*.template.yaml` file.
 
-**How:** Maps all workloads cleanly to their designated `project_name` environment spaces so Argo can self-heal them.
-
-### SyncWorkloads
-**What:** Synchronizes Kustomize manifests for all workloads in a Kustomize project. 
-
-**Why:** Very niche, you probably won't ever use this. 
-
-**How:** Discovers bases and overlays, morphs legacy `Ingress` specs into modern `HTTPRoute` GatewayAPI configurations, injects `ExternalSecret` manifests, binds registry pull-secrets via mutations, and writes pristine YAML to your destination directory.
-
-### Sync1Password
-**What:** Migrates from AWS Secrets Manager to 1Password
-
-**Why:** My homelab has a 1password subscription and for my use it's better than AWS Secrets Manager. Some of the software I'm deploying has a copy of the secrets in AWS Secrets Manager, so I'm using tooling to do the work of migrating it
-
-**How:** Extracts raw legacy credentials securely from AWS Secrets Manager. Unpacks JSON configs or opaque binary keystores, sanitizes identifiers, and provisions structured **Secure Notes** in your 1Password vault for GitOps ExternalSecrets to safely retrieve.
+### `setup-keycloak` → SetupKeycloak
+**What:** Provisions Keycloak for every target environment.
+**How:** Waits for Keycloak to come up, then creates the `neons` realm, its OIDC/SAML clients,
+three groups, and three seed users - and writes out the exported SAML descriptor.
 
 ## Architecture
 
-Operating loosely on an **Extract-Transform-Load (ETL)** pattern, every workflow orchestrated by `workflow.rb` is split into three bounded phases:
-1. `hydrate`: Some workflows need some discovered context to run properly - this is a prerequisite for the act phase.
-2. `act_phase`: Side-effect-free extraction and transformation. Predictable, pure logic that plans all operations and renders in memory. 
-3. `commit_phase`: The execution loop where all strictly planned filesystem I/O, Vault mutations, and side-effects occur.
-4. `discard_your_hand_and_draw_five_cards`: I miss dominion on isotropic. Good times.
+Every workflow lives in `internal/workflows/` as a plain Temporal workflow function - the direct
+replacement for a Ruby `Workflow::Orchestrator`. There's no generic `Runner`/`needs`-predicate
+framework to hand-roll here: each workflow just calls whatever [activities](internal/activities)
+it needs, in order, and Temporal's workflow/activity split already gives the same
+extract → transform → commit discipline the Ruby version enforced by convention:
+
+- **Activities** (`internal/activities`) are the only place real I/O happens: the filesystem, AWS,
+  1Password, Keycloak. Everything here can fail, retry, and is what a Temporal worker actually
+  executes.
+- **Workflows** (`internal/workflows`) orchestrate activity calls and - where the data involved is
+  safe to (see the comment on `BuildAppFiles`) - run pure logic directly, with no I/O of their own.
+- **Transformers** (`internal/transformers`) are the pure manifest-mutation pipeline: same
+  responsibilities as the Ruby `Workflow::Transformers::*` classes, fully unit-testable with no
+  Temporal or filesystem involvement at all.
+- **Domain / manifest** (`internal/domain`, `internal/manifest`) are small framework-free types and
+  helpers shared across the above.
+
+See `docs/GO_NOTES.md` for a from-first-principles walkthrough of the Go and Temporal concepts this
+codebase leans on.
 
 ## Usage
 
-Drive the pipeline via the CLI entrypoint:
+Build the binary once:
 
 ```bash
-./workflow.rb [command] [--dry-run]
+go build -o workflow ./cmd/workflow
 ```
 
-### Commands
+Then drive it exactly like the original CLI:
 
-*   `sync` 
-    Synchronizes Kustomize manifests for all workloads. Discovers bases and overlays, morphs legacy `Ingress` specs into modern `HTTPRoute` GatewayAPI configurations, injects `ExternalSecret` manifests, binds registry pull-secrets via mutations, and writes pristine YAML to your destination directory.
-*   `setup-argo` 
-    Generates the core App-of-Apps `Application` manifests for ArgoCD. Maps all workloads cleanly to their designated `project_name` environment spaces so Argo can self-heal them.
-*   `sync-1p` 
-    Extracts raw legacy credentials securely from AWS Secrets Manager. Unpacks JSON configs or opaque binary keystores, sanitizes identifiers, and provisions structured **Secure Notes** in your 1Password vault for GitOps ExternalSecrets to safely retrieve.
-*   `render-talos` 
-    Hydrates template configurations with `1Password` Secure Note IDs to prepare for Talos Linux cluster deployment and bootstrap procedures.
-
-## Configuration 
-
-Setup your environmental constraints inside a `.env` file at the root. Everything is dynamically mapped off your project declarations:
-
-```dotenv
-PROJECT_NAME='wtf'               # what is the name of the thing you're working on?
-SOURCE_ENV='dev3'                # Where we're extracting logic from
-TARGET_ENVS='dev4,dev5'          # Where we're migrating and layering the workloads
-
-# Resource URIs
-REGISTRY_HOSTNAME='cr.infra.fqdn'
-TLD='fancy.tld'
+```bash
+./workflow sync [--dry-run] [-v]
+./workflow setup-argo
+./workflow sync-1p
+./workflow render-talos
+./workflow setup-keycloak
 ```
+
+### Two ways to run Temporal
+
+Every command talks to Temporal via `--temporal`, which defaults to `embedded`:
+
+- **`--temporal=embedded`** (default): the command starts an in-process, in-memory Temporal dev
+  server, runs a worker inside the same process, executes the workflow, waits for the result, and
+  tears everything down - zero external dependencies, for quick local runs.
+- **`--temporal=<host:port>`**: dials an existing Temporal server instead (e.g. one started by
+  `docker-compose.yml`). A separate long-lived worker must already be polling that server:
+
+  ```bash
+  docker compose up -d          # Temporal server + Postgres + Web UI + a `workflow worker`
+  ./workflow sync --temporal=localhost:7233
+  open http://localhost:8080     # Temporal Web UI
+  ```
+
+  Use this mode for anything you want durable across restarts or visible in the Web UI - in
+  particular `setup-keycloak`, which polls for readiness for up to a minute using a durable
+  Temporal timer rather than blocking the process.
+
+## Configuration
+
+Same as before - a `.env` file at the repo root (see `.env.example`), driven entirely by
+project-declaration environment variables. Nothing here changed from the Ruby version's
+`config/config.rb`.
 
 ## Testing
 
 ```bash
-rspec # you know the drill
+go test ./...
 ```
 
-Workflows get integration tested, services behaviourally tested and utils with the gnarly bits get unit tested.
-
-Anything that 'leaks' from the test environment gets mocked at the IO boundary.
-
+Workflows are tested with `go.temporal.io/sdk/testsuite` (mocked activities, no server needed);
+transformers, domain types, and services are plain `go test` unit tests; a couple of activities
+tests exercise real temp-directory I/O for the trickier extract/transform/render path.

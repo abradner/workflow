@@ -1,12 +1,18 @@
-FROM public.ecr.aws/docker/library/ruby:4.0
+FROM golang:1-bookworm AS build
 
-RUN bundle config --global frozen 1
+WORKDIR /src
 
-WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 
-COPY ./Gemfile Gemfile.lock ./
-RUN bundle install
+COPY . .
+# CGO_ENABLED=0: modernc.org/sqlite (pulled in for the embedded Temporal dev
+# server) is pure Go, so this stays a static binary with no libc dependency.
+RUN CGO_ENABLED=0 go build -o /out/workflow ./cmd/workflow
 
-# No COPY . . needed - source will be mounted at runtime
+FROM gcr.io/distroless/static-debian12
 
-CMD ["bundle", "exec", "ruby", "workflow.rb", "--help"]
+COPY --from=build /out/workflow /usr/local/bin/workflow
+
+ENTRYPOINT ["workflow"]
+CMD ["--help"]
