@@ -104,11 +104,26 @@ A concrete order that worked here, general enough to repeat:
    `docs/GO_NOTES.md`'s "Decomposing the monolith" / "When not to decompose" sections. Don't do this
    in the first pass; get a working linear port first, then decompose once you can see which loops
    actually carry payload-size or isolation risk.
-6. **Port the test suite 1:1 where you can.** RSpec `expect(...).to eq(...)` assertions on
+6. **Audit every activity result and workflow input for secret material.** This is not the same
+   check as step 4. Temporal records every activity's input and result, and every workflow's input
+   and result, in its durable event history - visible via the Web UI/API/DB in external/durable mode
+   - whether or not anything downstream ever reads that particular field. If the Ruby tool's
+     hydration step ever pulled back a real credential, API key, or secret payload (not just a
+     reference/ID to one), find every activity in the port that returns it and every workflow input
+     that carries it, and make sure it never needs to. Two concrete techniques, both used in this
+     repo (see `docs/GO_NOTES.md`'s "Temporal's event history is not a secrets vault" section for the
+     worked examples): bundle extraction and use of a secret into **one activity call** so the value
+     never has to travel between two calls as a return value/argument, and split any config-loading
+     activity that bundles a credential in with unrelated general config into **two activities**, so
+     the credential only ever appears in the one workflow that actually consumes it. If neither
+     restructuring is practical, Temporal's `PayloadCodec` (payload encryption, configured on both
+     client and worker) is the supported fallback - budget for it if the new tool's secrets can't be
+     kept inside single activity calls the way this one's could.
+7. **Port the test suite 1:1 where you can.** RSpec `expect(...).to eq(...)` assertions on
    orchestrator behavior translate fairly directly to `go.temporal.io/sdk/testsuite` workflow tests
    with mocked activities (§8 of `docs/GO_NOTES.md`) - same "given these mocked results, assert this
    final state" shape, just a different mocking API.
-7. **Pin your Temporal module versions together and don't `go get -u` them independently** - `sdk`,
+8. **Pin your Temporal module versions together and don't `go get -u` them independently** - `sdk`,
    `server` (if you use the embedded dev server), and `api` need to be mutually compatible, and `go
    mod tidy` alone can silently drift one ahead of what another was built against. This bit us once
    already; see §9 of `docs/GO_NOTES.md`.
@@ -149,6 +164,12 @@ checklist to run through early in a new migration, before you rediscover each on
       §2 step 4 above.
 - [ ] **Large or unboundedly-scaling per-iteration payloads need child workflows**, not one
       accumulating slice passed to one final activity call - see §3 above.
+- [ ] **Secret values must never appear in an activity result or workflow input if avoidable** -
+      Temporal's event history records both, in plaintext, and that history is queryable through the
+      Web UI/API/DB in external mode regardless of whether any workflow code actually reads that
+      field back. Bundle "obtain the secret" and "use the secret" into one activity call, and split
+      credential-bearing fields out of any shared config-loading activity into their own,
+      narrowly-called one - see §2 step 6 above.
 - [ ] **Pin Temporal's own module versions together** (`sdk`, `server`, `api`) - don't let `go get
       -u` or a bare `go mod tidy` touch them independently.
 - [ ] **`gopkg.in/yaml.v3` (if you use it) decodes into `map[string]interface{}`**, not

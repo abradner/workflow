@@ -87,7 +87,38 @@ func (a *Activities) LoadConfig(_ context.Context) (LoadConfigResult, error) {
 	if err != nil {
 		return LoadConfigResult{}, err
 	}
+
+	// Blanked out deliberately: LoadConfig's result is recorded in every
+	// workflow's durable Temporal event history (visible via the Web
+	// UI/API/DB in external mode), but the Keycloak admin password is only
+	// ever needed by SetupKeycloakEnvWorkflow. Loading it there instead,
+	// via LoadKeycloakCredentials, keeps it out of every other workflow's
+	// history entirely.
+	cfg.KeycloakAdmin = ""
+	cfg.KeycloakAdminPassword = ""
+
 	return LoadConfigResult{Config: *cfg}, nil
+}
+
+// KeycloakCredentialsResult carries the Keycloak admin bootstrap
+// credentials, loaded via their own activity rather than as part of
+// LoadConfigResult - see LoadConfig's doc comment for why.
+type KeycloakCredentialsResult struct {
+	AdminUsername string
+	AdminPassword string
+}
+
+// LoadKeycloakCredentials loads the Keycloak admin bootstrap credentials
+// from the worker's own environment, same as LoadConfig does for
+// everything else - kept as a separate activity, called only from
+// SetupKeycloakEnvWorkflow, so this password never appears in any other
+// workflow's history.
+func (a *Activities) LoadKeycloakCredentials(_ context.Context) (KeycloakCredentialsResult, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return KeycloakCredentialsResult{}, err
+	}
+	return KeycloakCredentialsResult{AdminUsername: cfg.KeycloakAdmin, AdminPassword: cfg.KeycloakAdminPassword}, nil
 }
 
 // --- Discovery ---------------------------------------------------------
@@ -212,23 +243,6 @@ func (a *Activities) WriteFiles(_ context.Context, in WriteFilesInput) error {
 
 // --- Sync1Password ---------------------------------------------------------
 
-type ExtractAWSSecretsInput struct {
-	Env string
-}
-
-type ExtractAWSSecretsResult struct {
-	Secrets []domain.ExtractedSecret
-}
-
-// ExtractAWSSecrets lists and fetches every AWS Secrets Manager secret for Env.
-func (a *Activities) ExtractAWSSecrets(ctx context.Context, in ExtractAWSSecretsInput) (ExtractAWSSecretsResult, error) {
-	secrets, err := a.AWSSecrets.ExtractSecrets(ctx, in.Env)
-	if err != nil {
-		return ExtractAWSSecretsResult{}, err
-	}
-	return ExtractAWSSecretsResult{Secrets: secrets}, nil
-}
-
 type FetchSamlCredentialsInput struct {
 	RealmName string
 	BaseURL   string
@@ -248,17 +262,67 @@ func (a *Activities) FetchSamlCredentials(ctx context.Context, in FetchSamlCrede
 	return FetchSamlCredentialsResult{Credentials: svc.FetchFor(ctx, in.RealmName, in.BaseURL)}, nil
 }
 
-type IngestVaultItemInput struct {
+type SyncEnvSecretsInput struct {
 	ProjectName string
-	Env         string
-	Secrets     []domain.ExtractedSecret
+	SourceEnv   string
+	TargetEnv   string
+	KCPublicKey string // "" means no fresh Keycloak key to inject
+	DryRun      bool
 }
 
-// IngestVaultItem creates the "k8s-<project>-<env>" Secure Note in 1Password.
-func (a *Activities) IngestVaultItem(ctx context.Context, in IngestVaultItemInput) error {
+type SyncEnvSecretsResult struct {
+	SecretsExtracted int
+}
+
+// SyncEnvSecrets extracts every AWS secret for SourceEnv, remaps it onto
+// TargetEnv (injecting KCPublicKey into any mapped payload that carries an
+// "mp.jwt.verify.publickey" field), and, unless DryRun, provisions
+// TargetEnv's 1Password Secure Note from the result.
+//
+// Extraction, mapping, and ingestion are bundled into one activity
+// deliberately: the actual secret VALUES must never appear as an activity
+// result or workflow/child-workflow input, because Temporal records both,
+// byte-for-byte, in its durable event history (visible via the Web
+// UI/API/DB in external mode). An earlier version of this workflow
+// extracted once in the parent workflow and passed the plaintext secrets
+// down into every per-environment child - correct in spirit (share one
+// extraction across environments) but wrong in practice, since that put
+// real secret values in both the parent's and every child's history.
+// Keeping the whole extract-map-ingest pipeline inside one activity call
+// per environment means only a final secret *count* ever crosses back into
+// workflow code, at the cost of one extra (idempotent, read-only) AWS API
+// round trip per target environment instead of one shared round trip.
+//
+// This activity runs with retries disabled (see nonRetryingActivityOptions
+// at the call site) for the same reason IngestVaultItem always did: the
+// `op item create` call it ends with isn't safe to retry. That also means
+// a transient AWS-side failure during extraction doesn't get Temporal's
+// usual automatic retry either - an accepted trade for keeping the secrets
+// out of Temporal's history. Rerun the command if that happens.
+func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput) (SyncEnvSecretsResult, error) {
+	secrets, err := a.AWSSecrets.ExtractSecrets(ctx, in.SourceEnv)
+	if err != nil {
+		return SyncEnvSecretsResult{}, fmt.Errorf("extracting AWS secrets: %w", err)
+	}
+
+	mapper := transformers.OnePasswordSamlKeyInjector{
+		SourceEnv:   in.SourceEnv,
+		TargetEnv:   in.TargetEnv,
+		KCPublicKey: in.KCPublicKey,
+		Logger:      activity.GetLogger(ctx),
+	}
+	mapped := mapper.Call(secrets)
+
+	if in.DryRun {
+		return SyncEnvSecretsResult{SecretsExtracted: len(secrets)}, nil
+	}
+
 	svc := onepassword.New(in.ProjectName, a.OnePassword)
-	_, err := svc.IngestVaultItem(ctx, in.Env, in.Secrets)
-	return err
+	if _, err := svc.IngestVaultItem(ctx, in.TargetEnv, mapped); err != nil {
+		return SyncEnvSecretsResult{}, fmt.Errorf("ingesting vault item: %w", err)
+	}
+
+	return SyncEnvSecretsResult{SecretsExtracted: len(secrets)}, nil
 }
 
 // --- RenderTalos ------------------------------------------------------------

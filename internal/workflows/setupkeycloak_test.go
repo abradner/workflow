@@ -43,14 +43,17 @@ func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{
-		Environments:          []string{"dev4"},
-		ProjectName:           "pmn",
-		TLD:                   "f-ck.xyz",
-		DestDir:               "/dest",
-		KeycloakAdmin:         "admin",
-		KeycloakAdminPassword: "pass",
+		Environments: []string{"dev4"},
+		ProjectName:  "pmn",
+		TLD:          "f-ck.xyz",
+		DestDir:      "/dest",
 	}
 	mockLoadConfig(env, a, cfg)
+
+	// Loaded via its own activity, not off Config - see the doc comment on
+	// activities.LoadKeycloakCredentials.
+	env.OnActivity(a.LoadKeycloakCredentials, mock.Anything).
+		Return(activities.KeycloakCredentialsResult{AdminUsername: "admin", AdminPassword: "pass"}, nil)
 
 	env.OnActivity(a.CheckKeycloakReady, mock.Anything, mock.Anything).
 		Return(activities.CheckKeycloakReadyResult{Ready: true}, nil)
@@ -102,6 +105,8 @@ func TestSetupKeycloakWorkflow_OneEnvironmentFailingDoesNotStopTheOthers(t *test
 		return in.BaseURL == "https://pmn-keycloak.pmn.dev-ok.f-ck.xyz"
 	})).Return(activities.CheckKeycloakReadyResult{Ready: true}, nil)
 
+	env.OnActivity(a.LoadKeycloakCredentials, mock.Anything).
+		Return(activities.KeycloakCredentialsResult{AdminUsername: "admin", AdminPassword: "pass"}, nil)
 	env.OnActivity(a.RunKeycloakSetup, mock.Anything, mock.Anything).
 		Return(activities.RunKeycloakSetupResult{XML: "<xml/>", B64: "PHhtbC8+"}, nil)
 	env.OnActivity(a.WriteFiles, mock.Anything, mock.Anything).Return(nil)

@@ -178,6 +178,17 @@ then look for source manifests or write output using the wrong process's paths. 
 wherever the activity actually executes (the worker), so `Config` always matches the filesystem
 doing the real work, regardless of where the workflow was started from.
 
+**`LoadConfig` deliberately blanks the Keycloak admin password**: `Config.KeycloakAdmin`/
+`KeycloakAdminPassword` are zeroed out before `LoadConfig` returns, and loaded instead via a
+separate `LoadKeycloakCredentials` activity called only from `SetupKeycloakEnvWorkflow`. Every
+activity result and workflow input is recorded in Temporal's durable event history - visible via
+the Web UI/API/DB in external mode - regardless of whether anything downstream reads that field, so
+`LoadConfig`'s result being shared by all five workflows meant this password used to show up in
+every one of their histories, not just Keycloak's. Same principle is why `Sync1PasswordEnvWorkflow`
+bundles AWS secret extraction, mapping, and 1Password ingestion into one activity
+(`SyncEnvSecrets`) rather than passing real secret values through workflow code at all - see
+`docs/GO_NOTES.md`'s "Temporal's event history is not a secrets vault" section.
+
 **Determinism discipline**: workflow code must never range over a Go map to decide the
 order/arguments of activity calls - Go's map iteration is deliberately randomized, and Temporal
 replay requires a workflow to reissue the same command sequence on every replay. Either keep the

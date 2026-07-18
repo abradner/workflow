@@ -7,8 +7,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/abradner/workflow/internal/activities"
-	"github.com/abradner/workflow/internal/domain"
-	"github.com/abradner/workflow/internal/transformers"
 )
 
 // Sync1PasswordInput is the `sync-1p` command's workflow input.
@@ -23,17 +21,20 @@ type Sync1PasswordResult struct {
 	DryRun             bool
 }
 
-// Sync1PasswordWorkflow extracts every AWS secret for Config.SourceEnv once,
-// then fans out one Sync1PasswordEnvWorkflow child per target environment to
-// remap it (refreshing the Keycloak SAML public key where one is available)
-// and, unless DryRun, provision that environment's 1Password Secure Note.
+// Sync1PasswordWorkflow fans out one Sync1PasswordEnvWorkflow child per
+// target environment, each of which extracts the AWS secrets for
+// Config.SourceEnv, remaps them onto its own environment (refreshing the
+// Keycloak SAML public key where one is available), and, unless DryRun,
+// provisions that environment's 1Password Secure Note.
 //
-// Extraction stays a single shared step - it doesn't depend on which
-// environment is being synced, so there's nothing to gain from repeating it
-// per child. Everything downstream of it (credential lookup, mapping,
-// ingestion) is entirely per-environment, so those run concurrently as
-// child workflows - see docs/GO_NOTES.md's "Decomposing the monolith"
-// section.
+// Unlike SyncWorkloads and SetupKeycloak, extraction is *not* shared across
+// children by the parent - see the doc comment on activities.SyncEnvSecrets
+// for why: sharing it would mean passing real AWS secret values through
+// this parent workflow and into every child's input, both of which Temporal
+// records in durable, plaintext event history. Each child re-extracts for
+// itself instead, trading one extra AWS API round trip per environment for
+// keeping actual secret values out of any workflow's visible history
+// entirely - see docs/GO_NOTES.md's "Decomposing the monolith" section.
 //
 // Unlike SetupKeycloakWorkflow, one environment's failure here still fails
 // the whole run - matching the original Ruby commit_phase, which had no
@@ -56,13 +57,6 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 	}
 	cfg := cfgResult.Config
 
-	logger.Info("Extracting AWS secrets", "sourceEnv", cfg.SourceEnv)
-	extracted, err := runActivity[activities.ExtractAWSSecretsResult](ctx, a.ExtractAWSSecrets, activities.ExtractAWSSecretsInput{Env: cfg.SourceEnv})
-	if err != nil {
-		return Sync1PasswordResult{}, fmt.Errorf("extracting AWS secrets: %w", err)
-	}
-	logger.Info("Extracted secrets from AWS", "count", len(extracted.Secrets))
-
 	// Fan out: one child per environment, started before waiting on any of
 	// them so they run concurrently.
 	logger.Info("Fanning out one child workflow per environment", "environments", cfg.Environments)
@@ -73,46 +67,53 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 			SourceEnv:   cfg.SourceEnv,
 			TargetEnv:   env,
 			TLD:         cfg.TLD,
-			Secrets:     extracted.Secrets,
 			DryRun:      in.DryRun,
 		})
 	}
 
 	// Fan in: wait for every child and collect every failure instead of
 	// returning on the first one.
+	var secretsExtracted int
 	var errs error
 	for i, f := range futures {
-		if err := f.Get(ctx, nil); err != nil {
+		var envResult Sync1PasswordEnvResult
+		if err := f.Get(ctx, &envResult); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("environment %s: %w", cfg.Environments[i], err))
+			continue
 		}
+		secretsExtracted = envResult.SecretsExtracted
 	}
 	if errs != nil {
 		return Sync1PasswordResult{}, errs
 	}
 
 	return Sync1PasswordResult{
-		SecretsExtracted:   len(extracted.Secrets),
+		SecretsExtracted:   secretsExtracted,
 		EnvironmentsSynced: len(cfg.Environments),
 		DryRun:             in.DryRun,
 	}, nil
 }
 
 // Sync1PasswordEnvInput is one environment's share of Sync1PasswordWorkflow's
-// work - the unit Sync1PasswordWorkflow fans out over. Secrets is the AWS
-// secrets already extracted once by the parent for Config.SourceEnv.
+// work - the unit Sync1PasswordWorkflow fans out over.
 type Sync1PasswordEnvInput struct {
 	ProjectName string
 	SourceEnv   string
 	TargetEnv   string
 	TLD         string
-	Secrets     []domain.ExtractedSecret
 	DryRun      bool
 }
 
+// Sync1PasswordEnvResult summarizes what Sync1PasswordEnvWorkflow did for
+// one environment.
+type Sync1PasswordEnvResult struct {
+	SecretsExtracted int
+}
+
 // Sync1PasswordEnvWorkflow fetches this environment's Keycloak SAML public
-// key (if reachable), remaps the shared extracted secrets onto this
-// environment, and, unless DryRun, provisions its 1Password Secure Note.
-func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) error {
+// key (if reachable), then extracts, remaps, and (unless DryRun) ingests
+// this environment's 1Password Secure Note.
+func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) (Sync1PasswordEnvResult, error) {
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
@@ -123,7 +124,7 @@ func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) er
 		BaseURL:   baseURL,
 	})
 	if err != nil {
-		return fmt.Errorf("fetching SAML credentials: %w", err)
+		return Sync1PasswordEnvResult{}, fmt.Errorf("fetching SAML credentials: %w", err)
 	}
 
 	kcPublicKey := ""
@@ -131,33 +132,23 @@ func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) er
 		kcPublicKey = fetched.Credentials.PEMPublicKey()
 	}
 
-	mapper := transformers.OnePasswordSamlKeyInjector{
+	// Extraction, mapping, and 1Password ingestion all happen inside one
+	// activity call - see the doc comment on activities.SyncEnvSecrets for
+	// why the actual secret values must never cross back into workflow
+	// code. Retries are disabled for the same reason IngestVaultItem always
+	// was: the `op item create` call at the end of it isn't safe to retry.
+	ingestCtx := workflow.WithActivityOptions(ctx, nonRetryingActivityOptions())
+	synced, err := runActivity[activities.SyncEnvSecretsResult](ingestCtx, a.SyncEnvSecrets, activities.SyncEnvSecretsInput{
+		ProjectName: in.ProjectName,
 		SourceEnv:   in.SourceEnv,
 		TargetEnv:   in.TargetEnv,
 		KCPublicKey: kcPublicKey,
-		Logger:      logger,
-	}
-	mapped := mapper.Call(in.Secrets)
-
-	if in.DryRun {
-		logger.Info("Dry run: skipping 1Password commit", "env", in.TargetEnv)
-		return nil
+		DryRun:      in.DryRun,
+	})
+	if err != nil {
+		return Sync1PasswordEnvResult{}, fmt.Errorf("syncing secrets: %w", err)
 	}
 
-	// IngestVaultItem shells out to `op item create`, which has no
-	// idempotency key or upsert path - every call makes a brand new item.
-	// Run it without the default retry policy so a transient failure after
-	// a successful remote create can't get retried into a duplicate item.
-	ingestCtx := workflow.WithActivityOptions(ctx, nonRetryingActivityOptions())
-
-	logger.Info("Pushing 1Password vault item", "item", fmt.Sprintf("k8s-%s-%s", in.ProjectName, in.TargetEnv))
-	if err := workflow.ExecuteActivity(ingestCtx, a.IngestVaultItem, activities.IngestVaultItemInput{
-		ProjectName: in.ProjectName,
-		Env:         in.TargetEnv,
-		Secrets:     mapped,
-	}).Get(ingestCtx, nil); err != nil {
-		return fmt.Errorf("ingesting vault item: %w", err)
-	}
-
-	return nil
+	logger.Info("Synced secrets", "env", in.TargetEnv, "count", synced.SecretsExtracted)
+	return Sync1PasswordEnvResult{SecretsExtracted: synced.SecretsExtracted}, nil
 }
