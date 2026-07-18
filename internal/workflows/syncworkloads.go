@@ -6,12 +6,10 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/abradner/workflow/internal/activities"
-	"github.com/abradner/workflow/internal/config"
 )
 
 // SyncWorkloadsInput is the `sync` command's workflow input.
 type SyncWorkloadsInput struct {
-	Config config.Config
 	DryRun bool
 }
 
@@ -30,7 +28,15 @@ func SyncWorkloadsWorkflow(ctx workflow.Context, in SyncWorkloadsInput) (SyncWor
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities // nil receiver - see ExecuteActivity's docs on calling activity methods
 
-	discovered, err := runActivity[activities.DiscoverAppsResult](ctx, a.DiscoverApps, activities.DiscoverAppsInput{Config: in.Config})
+	// Config is loaded on whichever machine runs the worker, not wherever
+	// this workflow was started from - see the doc comment on LoadConfig.
+	cfgResult, err := runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)
+	if err != nil {
+		return SyncWorkloadsResult{}, fmt.Errorf("loading config: %w", err)
+	}
+	cfg := cfgResult.Config
+
+	discovered, err := runActivity[activities.DiscoverAppsResult](ctx, a.DiscoverApps, activities.DiscoverAppsInput{Config: cfg})
 	if err != nil {
 		return SyncWorkloadsResult{}, fmt.Errorf("discovering apps: %w", err)
 	}
@@ -41,7 +47,7 @@ func SyncWorkloadsWorkflow(ctx workflow.Context, in SyncWorkloadsInput) (SyncWor
 		logger.Info("Extracting and transforming workspace", "app", app)
 
 		built, err := runActivity[activities.BuildAppFilesResult](ctx, a.BuildAppFiles, activities.BuildAppFilesInput{
-			Config:  in.Config,
+			Config:  cfg,
 			AppName: app,
 		})
 		if err != nil {
@@ -57,7 +63,7 @@ func SyncWorkloadsWorkflow(ctx workflow.Context, in SyncWorkloadsInput) (SyncWor
 		return result, nil
 	}
 
-	logger.Info("Committing planned workspaces", "files", len(allFiles), "destDir", in.Config.DestDir)
+	logger.Info("Committing planned workspaces", "files", len(allFiles), "destDir", cfg.DestDir)
 	if err := workflow.ExecuteActivity(ctx, a.WriteFiles, activities.WriteFilesInput{Files: allFiles}).Get(ctx, nil); err != nil {
 		return SyncWorkloadsResult{}, fmt.Errorf("writing files: %w", err)
 	}

@@ -15,13 +15,16 @@ import (
 func TestSetupKeycloakWorkflow_DryRunDoesNothing(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	var a *activities.Activities
 
 	cfg := config.Config{Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", DestDir: "/dest"}
+	mockLoadConfig(env, a, cfg)
 
-	// No activities mocked at all: SetupKeycloak's provisioning work all
+	// No other activities mocked: SetupKeycloak's provisioning work all
 	// lives in the (Ruby-called) commit phase, which dry-run skips
-	// entirely - any activity call here would fail the test.
-	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{Config: cfg, DryRun: true})
+	// entirely - any activity call here (besides LoadConfig, which always
+	// runs) would fail the test.
+	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{DryRun: true})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -45,6 +48,7 @@ func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 		KeycloakAdmin:         "admin",
 		KeycloakAdminPassword: "pass",
 	}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.CheckKeycloakReady, mock.Anything, mock.Anything).
 		Return(activities.CheckKeycloakReadyResult{Ready: true}, nil)
@@ -60,7 +64,7 @@ func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 		return true
 	})).Return(nil)
 
-	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -82,6 +86,7 @@ func TestSetupKeycloakWorkflow_OneEnvironmentFailingDoesNotStopTheOthers(t *test
 	var a *activities.Activities
 
 	cfg := config.Config{Environments: []string{"dev-broken", "dev-ok"}, ProjectName: "pmn", TLD: "f-ck.xyz", DestDir: "/dest"}
+	mockLoadConfig(env, a, cfg)
 
 	// dev-broken never becomes ready - the workflow gives up after
 	// keycloakReadyMaxAttempts polls (durable-timer waits between them,
@@ -98,7 +103,7 @@ func TestSetupKeycloakWorkflow_OneEnvironmentFailingDoesNotStopTheOthers(t *test
 		Return(activities.RunKeycloakSetupResult{XML: "<xml/>", B64: "PHhtbC8+"}, nil)
 	env.OnActivity(a.WriteFiles, mock.Anything, mock.Anything).Return(nil)
 
-	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())

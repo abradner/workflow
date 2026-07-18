@@ -9,13 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/abradner/workflow/internal/activities"
-	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/services/templaterendering"
 )
 
 // RenderTalosInput is the `render-talos` command's workflow input.
 type RenderTalosInput struct {
-	Config config.Config
 	DryRun bool
 }
 
@@ -36,7 +34,14 @@ func RenderTalosWorkflow(ctx workflow.Context, in RenderTalosInput) (RenderTalos
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
-	cfg := in.Config
+
+	// Config is loaded on whichever machine runs the worker, not wherever
+	// this workflow was started from - see the doc comment on LoadConfig.
+	cfgResult, err := runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)
+	if err != nil {
+		return RenderTalosResult{}, fmt.Errorf("loading config: %w", err)
+	}
+	cfg := cfgResult.Config
 
 	logger.Info("Reading Secure Note from 1Password", "itemID", cfg.TalosItemID)
 	note, err := runActivity[activities.ReadOnePasswordNoteResult](ctx, a.ReadOnePasswordNote, activities.ReadOnePasswordNoteInput{ItemID: cfg.TalosItemID})

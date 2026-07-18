@@ -24,6 +24,8 @@ func TestGenerateArgocdWorkflow_GeneratesOneManifestPerAppPerEnv(t *testing.T) {
 		Environments:   []string{"dev4", "dev5"},
 	}
 
+	mockLoadConfig(env, a, cfg)
+
 	env.OnActivity(a.DiscoverApps, mock.Anything, mock.Anything).
 		Return(activities.DiscoverAppsResult{Apps: []string{"wtf-core"}}, nil)
 
@@ -33,7 +35,7 @@ func TestGenerateArgocdWorkflow_GeneratesOneManifestPerAppPerEnv(t *testing.T) {
 		return true
 	})).Return(nil)
 
-	env.ExecuteWorkflow(workflows.GenerateArgocdWorkflow, workflows.GenerateArgocdInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.GenerateArgocdWorkflow, workflows.GenerateArgocdInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())

@@ -29,6 +29,8 @@ func TestSync1PasswordWorkflow_MapsAndIngestsPerEnvironment(t *testing.T) {
 		TLD:          "f-ck.xyz",
 	}
 
+	mockLoadConfig(env, a, cfg)
+
 	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.MatchedBy(func(in activities.FetchSamlCredentialsInput) bool {
 		return in.BaseURL == "https://pmn-keycloak.pmn.dev4.f-ck.xyz"
 	})).Return(activities.FetchSamlCredentialsResult{Credentials: &domain.SamlCredentials{PublicKey: "fresh_key", SSOXML: "<xml/>"}}, nil)
@@ -48,7 +50,7 @@ func TestSync1PasswordWorkflow_MapsAndIngestsPerEnvironment(t *testing.T) {
 		return true
 	})).Return(nil)
 
-	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -76,6 +78,7 @@ func TestSync1PasswordWorkflow_DryRunSkipsIngestion(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
 		Return(activities.FetchSamlCredentialsResult{Credentials: nil}, nil)
@@ -84,7 +87,7 @@ func TestSync1PasswordWorkflow_DryRunSkipsIngestion(t *testing.T) {
 	// No IngestVaultItem mock: the test environment fails the test if the
 	// workflow tries to call an activity with no matching expectation.
 
-	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{Config: cfg, DryRun: true})
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: true})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -100,6 +103,7 @@ func TestSync1PasswordWorkflow_IngestFailureIsNotRetried(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
 		Return(activities.FetchSamlCredentialsResult{Credentials: nil}, nil)
@@ -108,7 +112,7 @@ func TestSync1PasswordWorkflow_IngestFailureIsNotRetried(t *testing.T) {
 	env.OnActivity(a.IngestVaultItem, mock.Anything, mock.Anything).
 		Return(errors.New("op item create: some transient failure"))
 
-	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.Error(t, env.GetWorkflowError())

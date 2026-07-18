@@ -7,35 +7,35 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/temporalutil"
 )
 
-// runWorkflow loads Config, builds workflowFn's input from it, runs the
-// workflow (embedded or external per opts.Temporal), and reports the result.
-// Generic over each workflow's distinct input/output types so every
-// subcommand in commands.go is a two-line wrapper around this.
+// runWorkflow runs a workflow (embedded or external per opts.Temporal) and
+// reports the result. Generic over each workflow's distinct input/output
+// types so every subcommand in commands.go is a one-line wrapper around
+// this.
+//
+// Notably, this does NOT load Config - each workflow does that itself as
+// its first step, via the LoadConfig activity, so Config always reflects
+// wherever the worker actually runs. In external mode that's a different
+// process (and potentially a different machine/container/filesystem
+// entirely) from wherever this CLI command is invoked - see the doc
+// comment on activities.Activities.LoadConfig.
 func runWorkflow[TIn, TOut any](
 	ctx context.Context,
 	opts *globalOptions,
 	workflowFn func(workflow.Context, TIn) (TOut, error),
-	buildInput func(config.Config) TIn,
+	input TIn,
 ) error {
 	logger := opts.logger()
-
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Fatal("Failed to load configuration", err)
-	}
 
 	logger.Section("Starting Workflow")
 	if opts.DryRun {
 		logger.Info("[DRY RUN] planning only - no state changes will be made")
 	}
 
-	input := buildInput(*cfg)
-
 	var result TOut
+	var err error
 	if opts.Temporal == "" || opts.Temporal == "embedded" {
 		logger.Info("Running against an embedded, in-process Temporal server")
 		result, err = temporalutil.RunEmbedded(ctx, workflowFn, input)

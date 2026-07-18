@@ -63,6 +63,33 @@ type FileWrite struct {
 	Content string
 }
 
+// --- Config --------------------------------------------------------------
+
+type LoadConfigResult struct {
+	Config config.Config
+}
+
+// LoadConfig loads Config from the worker process's own environment (.env +
+// env vars).
+//
+// This has to be an activity - called by every workflow as its first step -
+// rather than a value the CLI client loads and passes in as workflow input.
+// A Temporal client and the worker that executes the workflow can be
+// different machines with different filesystems (that's the whole point of
+// --temporal=<host:port> mode: docker-compose runs the worker in a
+// container with its own mounted paths, while the CLI command that starts
+// the workflow runs on the host). Config carries filesystem paths
+// (SourceDir, DestDir, ...) that are only meaningful relative to whichever
+// process actually performs the I/O - the worker - so that's the only place
+// they can correctly be read from.
+func (a *Activities) LoadConfig(_ context.Context) (LoadConfigResult, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return LoadConfigResult{}, err
+	}
+	return LoadConfigResult{Config: *cfg}, nil
+}
+
 // --- Discovery ---------------------------------------------------------
 
 type DiscoverAppsInput struct {

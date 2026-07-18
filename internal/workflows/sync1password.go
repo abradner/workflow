@@ -6,14 +6,12 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/abradner/workflow/internal/activities"
-	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/domain"
 	"github.com/abradner/workflow/internal/transformers"
 )
 
 // Sync1PasswordInput is the `sync-1p` command's workflow input.
 type Sync1PasswordInput struct {
-	Config config.Config
 	DryRun bool
 }
 
@@ -32,7 +30,14 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
-	cfg := in.Config
+
+	// Config is loaded on whichever machine runs the worker, not wherever
+	// this workflow was started from - see the doc comment on LoadConfig.
+	cfgResult, err := runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)
+	if err != nil {
+		return Sync1PasswordResult{}, fmt.Errorf("loading config: %w", err)
+	}
+	cfg := cfgResult.Config
 
 	// Hydration: fetch SAML credentials for every target environment. This
 	// always runs, dry-run or not - Ruby's Runner hydrates unconditionally

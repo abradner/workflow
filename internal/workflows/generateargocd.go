@@ -13,7 +13,6 @@ import (
 
 // GenerateArgocdInput is the `setup-argo` command's workflow input.
 type GenerateArgocdInput struct {
-	Config config.Config
 	DryRun bool
 }
 
@@ -31,11 +30,19 @@ func GenerateArgocdWorkflow(ctx workflow.Context, in GenerateArgocdInput) (Gener
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
 
-	discovered, err := runActivity[activities.DiscoverAppsResult](ctx, a.DiscoverApps, activities.DiscoverAppsInput{Config: in.Config})
+	// Config is loaded on whichever machine runs the worker, not wherever
+	// this workflow was started from - see the doc comment on LoadConfig.
+	cfgResult, err := runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)
+	if err != nil {
+		return GenerateArgocdResult{}, fmt.Errorf("loading config: %w", err)
+	}
+	cfg := cfgResult.Config
+
+	discovered, err := runActivity[activities.DiscoverAppsResult](ctx, a.DiscoverApps, activities.DiscoverAppsInput{Config: cfg})
 	if err != nil {
 		return GenerateArgocdResult{}, fmt.Errorf("discovering apps: %w", err)
 	}
-	logger.Info("Will generate ArgoCD Application manifests", "apps", len(discovered.Apps), "envs", len(in.Config.Environments))
+	logger.Info("Will generate ArgoCD Application manifests", "apps", len(discovered.Apps), "envs", len(cfg.Environments))
 
 	// Unlike SyncWorkloads, this manifest is built fresh right here - none
 	// of it came from parsing existing YAML, so there's no risk of an
@@ -43,8 +50,8 @@ func GenerateArgocdWorkflow(ctx workflow.Context, in GenerateArgocdInput) (Gener
 	// aren't any). Safe to render directly in workflow code.
 	var files []activities.FileWrite
 	for _, app := range discovered.Apps {
-		for _, env := range in.Config.Environments {
-			doc := argocdApplicationManifest(app, env, in.Config)
+		for _, env := range cfg.Environments {
+			doc := argocdApplicationManifest(app, env, cfg)
 
 			text, err := manifest.RenderYAML(doc)
 			if err != nil {
@@ -52,7 +59,7 @@ func GenerateArgocdWorkflow(ctx workflow.Context, in GenerateArgocdInput) (Gener
 			}
 
 			files = append(files, activities.FileWrite{
-				Path:    filepath.Join(in.Config.ClusterAppsDir, fmt.Sprintf("%s-%s.yaml", app, env)),
+				Path:    filepath.Join(cfg.ClusterAppsDir, fmt.Sprintf("%s-%s.yaml", app, env)),
 				Content: text,
 			})
 		}

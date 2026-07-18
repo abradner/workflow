@@ -165,6 +165,17 @@ code put real work (`act_phase` vs `commit_phase`):
 - `SetupKeycloak`: essentially **all** of its work was in Ruby's `commit_phase`, so `DryRun` skips
   the entire environment loop, not just a write step.
 
+**Config is loaded by an activity (`LoadConfig`), not passed in as workflow input**: every
+workflow's first call is `runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)`. This isn't
+optional plumbing - a Temporal client (the CLI command that starts a workflow) and the worker that
+executes it can be different machines with different filesystems entirely (that's the whole point
+of `--temporal=<host:port>` mode: docker-compose runs the worker in a container with its own
+mounted paths). If the CLI loaded `Config` itself and passed it in as workflow input, every
+filesystem path in it would reflect the *client's* machine, not the worker's - activities would
+then look for source manifests or write output using the wrong process's paths. `LoadConfig` runs
+wherever the activity actually executes (the worker), so `Config` always matches the filesystem
+doing the real work, regardless of where the workflow was started from.
+
 **Determinism discipline**: workflow code must never range over a Go map to decide the
 order/arguments of activity calls - Go's map iteration is deliberately randomized, and Temporal
 replay requires a workflow to reissue the same command sequence on every replay. Either keep the

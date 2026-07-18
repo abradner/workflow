@@ -18,6 +18,7 @@ func TestRenderTalosWorkflow_RendersAllTemplatesWhenPlaceholdersResolve(t *testi
 	var a *activities.Activities
 
 	cfg := config.Config{TalosItemID: "item-123", TalosTemplateDir: "/talos"}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.ReadOnePasswordNote, mock.Anything, activities.ReadOnePasswordNoteInput{ItemID: "item-123"}).
 		Return(activities.ReadOnePasswordNoteResult{Content: "cluster:\n  id: abc123\n"}, nil)
@@ -34,7 +35,7 @@ func TestRenderTalosWorkflow_RendersAllTemplatesWhenPlaceholdersResolve(t *testi
 		return true
 	})).Return(nil)
 
-	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -54,6 +55,7 @@ func TestRenderTalosWorkflow_FailsWithUnresolvedPlaceholders(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{TalosItemID: "item-123", TalosTemplateDir: "/talos"}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.ReadOnePasswordNote, mock.Anything, mock.Anything).
 		Return(activities.ReadOnePasswordNoteResult{Content: "cluster:\n  id: abc123\n"}, nil)
@@ -64,7 +66,7 @@ func TestRenderTalosWorkflow_FailsWithUnresolvedPlaceholders(t *testing.T) {
 		}, nil)
 	// No WriteFiles mock - missing placeholders must fail before commit.
 
-	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	err := env.GetWorkflowError()

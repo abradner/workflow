@@ -18,6 +18,7 @@ func TestSyncWorkloadsWorkflow_CommitsFilesBuiltForEveryApp(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{SourceDir: "/src", DestDir: "/dest", SourceEnv: "dev3", Environments: []string{"dev4"}}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.DiscoverApps, mock.Anything, mock.Anything).
 		Return(activities.DiscoverAppsResult{Apps: []string{"app1", "app2"}}, nil)
@@ -36,7 +37,7 @@ func TestSyncWorkloadsWorkflow_CommitsFilesBuiltForEveryApp(t *testing.T) {
 		return true
 	})).Return(nil)
 
-	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{Config: cfg, DryRun: false})
+	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: false})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -55,6 +56,7 @@ func TestSyncWorkloadsWorkflow_DryRunSkipsWriteFiles(t *testing.T) {
 	var a *activities.Activities
 
 	cfg := config.Config{SourceDir: "/src", DestDir: "/dest", SourceEnv: "dev3", Environments: []string{"dev4"}}
+	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.DiscoverApps, mock.Anything, mock.Anything).
 		Return(activities.DiscoverAppsResult{Apps: []string{"app1"}}, nil)
@@ -63,7 +65,7 @@ func TestSyncWorkloadsWorkflow_DryRunSkipsWriteFiles(t *testing.T) {
 	// Deliberately no WriteFiles mock: if the workflow tried to call it under
 	// DryRun, the test environment would fail with "no mock for WriteFiles".
 
-	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{Config: cfg, DryRun: true})
+	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: true})
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())

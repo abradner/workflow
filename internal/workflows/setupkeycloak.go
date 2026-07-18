@@ -19,7 +19,6 @@ const (
 
 // SetupKeycloakInput is the `setup-keycloak` command's workflow input.
 type SetupKeycloakInput struct {
-	Config config.Config
 	DryRun bool
 }
 
@@ -44,7 +43,14 @@ func SetupKeycloakWorkflow(ctx workflow.Context, in SetupKeycloakInput) (SetupKe
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
-	cfg := in.Config
+
+	// Config is loaded on whichever machine runs the worker, not wherever
+	// this workflow was started from - see the doc comment on LoadConfig.
+	cfgResult, err := runActivity[activities.LoadConfigResult](ctx, a.LoadConfig)
+	if err != nil {
+		return SetupKeycloakResult{}, fmt.Errorf("loading config: %w", err)
+	}
+	cfg := cfgResult.Config
 
 	logger.Info("Planning Keycloak setup", "environments", strings.Join(cfg.Environments, ", "))
 

@@ -99,11 +99,21 @@ Every command talks to Temporal via `--temporal`, which defaults to `embedded`:
   particular `setup-keycloak`, which polls for readiness for up to a minute using a durable
   Temporal timer rather than blocking the process.
 
+  Note that in this mode, the CLI command that *starts* a workflow and the worker that *executes*
+  it are different processes - possibly on different machines or containers entirely (that's the
+  whole point of docker-compose running the worker separately). `Config` (including every
+  filesystem path) is always loaded from whichever process the worker runs in, never from the
+  client that merely triggered the run - see the doc comment on `activities.Activities.LoadConfig`.
+  So only the machine running `workflow worker` needs a `.env`; the client invoking `sync` etc.
+  against `--temporal=<host:port>` doesn't need one at all.
+
 ## Configuration
 
-Same as before - a `.env` file at the repo root (see `.env.example`), driven entirely by
-project-declaration environment variables. Nothing here changed from the Ruby version's
-`config/config.rb`.
+Same as before - a `.env` file wherever the worker process runs (see `.env.example`), driven
+entirely by project-declaration environment variables. Nothing here changed from the Ruby
+version's `config/config.rb`. In embedded mode the worker and the CLI are the same process, so
+that's just the current directory; in external mode it's wherever `workflow worker` runs (e.g. the
+docker-compose worker service, via `env_file: .env`).
 
 ## Testing
 
