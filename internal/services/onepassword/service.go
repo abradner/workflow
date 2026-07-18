@@ -45,7 +45,7 @@ func (s *Service) IngestVaultItem(ctx context.Context, env string, extractedSecr
 		case secret.String != nil:
 			if keys, values, ok := parseFlatJSONObject(*secret.String); ok {
 				for _, k := range keys {
-					fields = append(fields, concealedField(sectionID, k, fmt.Sprint(values[k])))
+					fields = append(fields, concealedField(sectionID, k, stringify(values[k])))
 				}
 			} else {
 				fields = append(fields, concealedField(sectionID, "password", *secret.String))
@@ -72,6 +72,18 @@ func concealedField(sectionID, label, value string) map[string]any {
 		"value":   value,
 		"type":    "CONCEALED",
 	}
+}
+
+// stringify renders a decoded JSON value as 1Password would expect it as a
+// field value. Used instead of a bare fmt.Sprint(v): a JSON `null` decodes
+// to a Go nil interface, and fmt.Sprint(nil) renders that as the literal
+// string "<nil>" - a bogus, non-empty secret value - rather than the empty
+// string the original Ruby tool's `value.to_s` produced for the same input.
+func stringify(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
 }
 
 // sanitizeSectionID drops the leading environment segment from an AWS

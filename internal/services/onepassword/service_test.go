@@ -60,6 +60,26 @@ func TestIngestVaultItem_BuildsSectionsAndFieldsFromExtractedSecrets(t *testing.
 	assert.Equal(t, concealedField("wtf-raw-secret", "password", "raw_string_password"), fields[3])
 }
 
+// TestIngestVaultItem_NullJSONFieldBecomesEmptyString is the regression test
+// for a JSON `null` value decoding to a Go nil interface and then rendering
+// as the literal string "<nil>" via a bare fmt.Sprint - instead of the empty
+// string the original Ruby tool's `value.to_s` produced for the same input.
+func TestIngestVaultItem_NullJSONFieldBecomesEmptyString(t *testing.T) {
+	client := &fakeOpClient{}
+	svc := onepassword.New("wtf", client)
+
+	secrets := []domain.ExtractedSecret{
+		{Name: "dev3/wtf/config", String: strptr(`{"foo":null}`)},
+	}
+
+	_, err := svc.IngestVaultItem(context.Background(), "dev4", secrets)
+	require.NoError(t, err)
+
+	fields := client.gotItem["fields"].([]map[string]any)
+	require.Len(t, fields, 1)
+	assert.Equal(t, concealedField("wtf-config", "foo", ""), fields[0])
+}
+
 func TestIngestVaultItem_EmptySecretsMarshalFieldsAsEmptyArray(t *testing.T) {
 	client := &fakeOpClient{}
 	svc := onepassword.New("wtf", client)
