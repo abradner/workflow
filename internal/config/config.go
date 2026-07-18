@@ -34,7 +34,10 @@ type Config struct {
 	AppPattern  string `env:"APP_PATTERN,required"`
 	ProjectName string `env:"PROJECT_NAME,required"`
 	TLD         string `env:"TLD,required"`
-	RepoURL     string `env:"REPO_URL,required"`
+	// RepoURL is the workloads repo the generated ArgoCD ApplicationSet
+	// syncs from (source.repoURL in argocdApplicationSetManifest) - not
+	// this tool's own GitOps output repo (DestDir/ClusterAppsDir).
+	RepoURL string `env:"REPO_URL,required"`
 
 	// Private container registry.
 	RegistryHostname string `env:"REGISTRY_HOSTNAME,required"`

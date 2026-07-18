@@ -26,8 +26,8 @@ to the destination directory.
 ### `setup-argo` → GenerateArgocd
 **What:** Generates the ArgoCD `ApplicationSet` that covers every app × environment combination.
 **How:** A single `<project>-appset.yaml` with a matrix generator (one env list × one service list),
-expanding into an `Application` named `<app>-<env>` per combination, mapped to
-`<project>-workloads/<app>/overlay/<env>`.
+expanding into an `Application` named `<app>-<env>` per combination, mapped to path
+`<app>/overlay/<env>` within the separate `<project>-workloads` repo (referenced via `repoURL`).
 
 ### `sync-1p` → Sync1Password
 **What:** Migrates secrets from AWS Secrets Manager to 1Password.
