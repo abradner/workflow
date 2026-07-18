@@ -56,8 +56,10 @@ func setRequiredConfigEnv(t *testing.T, dir string) {
 // P1 fix that keeps the Keycloak admin password out of every workflow's
 // Temporal history: LoadConfig's result is recorded verbatim in whichever
 // workflow calls it (every one of the five), so the password must never
-// actually be present in what it returns - only LoadKeycloakCredentials,
-// called solely from SetupKeycloakEnvWorkflow, should ever carry it.
+// actually be present in what it returns. RunKeycloakSetup loads it
+// directly via its own config.Load() call instead (see its doc comment) -
+// config.Load() itself returning the real value is covered by
+// internal/config/config_test.go.
 func TestLoadConfig_BlanksKeycloakAdminPassword(t *testing.T) {
 	setRequiredConfigEnv(t, t.TempDir())
 
@@ -66,10 +68,6 @@ func TestLoadConfig_BlanksKeycloakAdminPassword(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.Config.KeycloakAdmin, "LoadConfig must not expose the admin username either")
 	assert.Empty(t, result.Config.KeycloakAdminPassword, "LoadConfig must not expose the admin password")
-
-	creds, err := a.LoadKeycloakCredentials(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "super-secret-password", creds.AdminPassword, "the real password is still loadable via its own activity")
 }
 
 func TestDiscoverApps(t *testing.T) {
@@ -122,16 +120,39 @@ spec:
 	a := &activities.Activities{FS: filesystem.New()}
 	result, err := a.BuildAppFiles(context.Background(), activities.BuildAppFilesInput{Config: cfg, AppName: "wtf-core"})
 	require.NoError(t, err)
+	require.Equal(t, 2, result.FilesWritten, "base/ingress.yaml + the injected registry-pull-secret.yaml")
 
-	var ingressFile *activities.FileWrite
-	for i := range result.Files {
-		if result.Files[i].Path == filepath.Join(cfg.DestDir, "wtf-core/base/ingress.yaml") {
-			ingressFile = &result.Files[i]
-		}
+	content, err := os.ReadFile(filepath.Join(cfg.DestDir, "wtf-core/base/ingress.yaml"))
+	require.NoError(t, err, "BuildAppFiles must write the file itself, not just return its content")
+	assert.Contains(t, string(content), "port: 8080\n", "port must render as an integer, not 8080.0")
+	assert.NotContains(t, string(content), "8080.0")
+}
+
+// TestBuildAppFiles_DryRunWritesNothing proves DryRun still reports an
+// accurate count without touching disk.
+func TestBuildAppFiles_DryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "wtf-core/base/deployment.yaml"), "kind: Deployment\n")
+
+	cfg := config.Config{
+		SourceDir:                 dir,
+		DestDir:                   filepath.Join(dir, "dest"),
+		SourceEnv:                 "dev3",
+		Environments:              []string{"dev3"},
+		ProjectName:               "wtf",
+		TLD:                       "f-ck.xyz",
+		ExternalSecretsAPIVersion: "external-secrets.io/v1",
+		RegistryHostname:          "cr.infra.fqdn",
+		Registry1PItemID:          "12345",
 	}
-	require.NotNil(t, ingressFile, "expected base/ingress.yaml among the built files")
-	assert.Contains(t, ingressFile.Content, "port: 8080\n", "port must render as an integer, not 8080.0")
-	assert.NotContains(t, ingressFile.Content, "8080.0")
+
+	a := &activities.Activities{FS: filesystem.New()}
+	result, err := a.BuildAppFiles(context.Background(), activities.BuildAppFilesInput{Config: cfg, AppName: "wtf-core", DryRun: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.FilesWritten, "base/deployment.yaml + the injected registry-pull-secret.yaml")
+
+	_, statErr := os.Stat(filepath.Join(cfg.DestDir, "wtf-core/base/deployment.yaml"))
+	assert.True(t, os.IsNotExist(statErr), "DryRun must not write anything")
 }
 
 // fakeSecretsClient serves one fixed secret regardless of which environment
@@ -260,6 +281,90 @@ func TestSyncEnvSecrets_DryRunSkipsIngestion(t *testing.T) {
 	})
 	assert.Equal(t, 1, result.SecretsExtracted)
 	assert.Nil(t, runner.lastPayload, "DryRun must never call the 1Password client")
+}
+
+// fakeOpNoteRunner serves a fixed Secure Note body for `op item get`,
+// regardless of item ID - enough to exercise RenderTalosTemplates without a
+// real `op` binary or 1Password vault.
+type fakeOpNoteRunner struct {
+	noteContent string
+}
+
+func (f *fakeOpNoteRunner) Run(_ context.Context, _ string, _ []string, _ []byte) (string, string, error) {
+	return f.noteContent, "", nil
+}
+
+// TestRenderTalosTemplates_RendersAndWritesWhenPlaceholdersResolve is the
+// regression test for keeping the Secure Note content and rendered
+// (secret-bearing) files inside one activity: see the doc comment on
+// RenderTalosTemplates. Its result type has no field to carry that content
+// even if this test wanted to check one - the only way to verify rendering
+// actually happened is to read the file this activity wrote itself.
+func TestRenderTalosTemplates_RendersAndWritesWhenPlaceholdersResolve(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "config.template.yaml"), "id: {{ cluster.id }}\n")
+
+	a := &activities.Activities{
+		FS:          filesystem.New(),
+		OnePassword: op.NewWithRunner(&fakeOpNoteRunner{noteContent: "cluster:\n  id: abc123\n"}),
+	}
+
+	result, err := a.RenderTalosTemplates(context.Background(), activities.RenderTalosTemplatesInput{
+		ItemID:      "item-123",
+		TemplateDir: dir,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.SecretKeysLoaded)
+	assert.Equal(t, 1, result.TemplatesRendered)
+
+	content, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	require.NoError(t, err, "RenderTalosTemplates must write the rendered file itself")
+	assert.Equal(t, "id: abc123\n", string(content))
+}
+
+// TestRenderTalosTemplates_DryRunWritesNothing proves DryRun still renders
+// (so the result counts are accurate) but never touches disk.
+func TestRenderTalosTemplates_DryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "config.template.yaml"), "id: {{ cluster.id }}\n")
+
+	a := &activities.Activities{
+		FS:          filesystem.New(),
+		OnePassword: op.NewWithRunner(&fakeOpNoteRunner{noteContent: "cluster:\n  id: abc123\n"}),
+	}
+
+	result, err := a.RenderTalosTemplates(context.Background(), activities.RenderTalosTemplatesInput{
+		ItemID:      "item-123",
+		TemplateDir: dir,
+		DryRun:      true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.TemplatesRendered)
+
+	_, statErr := os.Stat(filepath.Join(dir, "config.yaml"))
+	assert.True(t, os.IsNotExist(statErr), "DryRun must not write the rendered file")
+}
+
+// TestRenderTalosTemplates_FailsWithUnresolvedPlaceholders proves an
+// unresolved placeholder fails before anything is written.
+func TestRenderTalosTemplates_FailsWithUnresolvedPlaceholders(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "config.template.yaml"), "id: {{ cluster.id }}\ntoken: {{ missing.token }}\n")
+
+	a := &activities.Activities{
+		FS:          filesystem.New(),
+		OnePassword: op.NewWithRunner(&fakeOpNoteRunner{noteContent: "cluster:\n  id: abc123\n"}),
+	}
+
+	_, err := a.RenderTalosTemplates(context.Background(), activities.RenderTalosTemplatesInput{
+		ItemID:      "item-123",
+		TemplateDir: dir,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "unresolved placeholder")
+
+	_, statErr := os.Stat(filepath.Join(dir, "config.yaml"))
+	assert.True(t, os.IsNotExist(statErr), "must not write anything if placeholders are unresolved")
 }
 
 func TestWriteFiles_CreatesDirectoriesAndWritesContent(t *testing.T) {

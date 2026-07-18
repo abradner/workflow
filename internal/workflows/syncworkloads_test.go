@@ -25,22 +25,16 @@ func TestSyncWorkloadsWorkflow_CommitsFilesBuiltForEveryApp(t *testing.T) {
 	env.OnActivity(a.DiscoverApps, mock.Anything, mock.Anything).
 		Return(activities.DiscoverAppsResult{Apps: []string{"app1", "app2"}}, nil)
 
+	// BuildAppFiles now writes internally (see its doc comment) rather than
+	// returning content for a separate WriteFiles call, so mocking it is
+	// enough to exercise the whole per-app commit.
 	env.OnActivity(a.BuildAppFiles, mock.Anything, mock.MatchedBy(func(in activities.BuildAppFilesInput) bool {
-		return in.AppName == "app1"
-	})).Return(activities.BuildAppFilesResult{Files: []activities.FileWrite{{Path: "/dest/app1/base/x.yaml", Content: "a"}}}, nil)
+		return in.AppName == "app1" && !in.DryRun
+	})).Return(activities.BuildAppFilesResult{FilesWritten: 1}, nil)
 
 	env.OnActivity(a.BuildAppFiles, mock.Anything, mock.MatchedBy(func(in activities.BuildAppFilesInput) bool {
-		return in.AppName == "app2"
-	})).Return(activities.BuildAppFilesResult{Files: []activities.FileWrite{{Path: "/dest/app2/base/y.yaml", Content: "b"}}}, nil)
-
-	// Each app now commits via its own child workflow's own WriteFiles call
-	// (one call per app) rather than one aggregate call at the end, so this
-	// mock fires twice - accumulate across both instead of assuming one.
-	var writtenFiles []activities.FileWrite
-	env.OnActivity(a.WriteFiles, mock.Anything, mock.MatchedBy(func(in activities.WriteFilesInput) bool {
-		writtenFiles = append(writtenFiles, in.Files...)
-		return true
-	})).Return(nil)
+		return in.AppName == "app2" && !in.DryRun
+	})).Return(activities.BuildAppFilesResult{FilesWritten: 1}, nil)
 
 	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: false})
 
@@ -52,10 +46,9 @@ func TestSyncWorkloadsWorkflow_CommitsFilesBuiltForEveryApp(t *testing.T) {
 	require.Equal(t, 2, result.AppsProcessed)
 	require.Equal(t, 2, result.FilesWritten)
 	require.False(t, result.DryRun)
-	require.Len(t, writtenFiles, 2)
 }
 
-func TestSyncWorkloadsWorkflow_DryRunSkipsWriteFiles(t *testing.T) {
+func TestSyncWorkloadsWorkflow_DryRunSkipsWriting(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.RegisterWorkflow(workflows.SyncAppWorkflow)
@@ -66,10 +59,12 @@ func TestSyncWorkloadsWorkflow_DryRunSkipsWriteFiles(t *testing.T) {
 
 	env.OnActivity(a.DiscoverApps, mock.Anything, mock.Anything).
 		Return(activities.DiscoverAppsResult{Apps: []string{"app1"}}, nil)
-	env.OnActivity(a.BuildAppFiles, mock.Anything, mock.Anything).
-		Return(activities.BuildAppFilesResult{Files: []activities.FileWrite{{Path: "/dest/app1/base/x.yaml", Content: "a"}}}, nil)
-	// Deliberately no WriteFiles mock: if the workflow tried to call it under
-	// DryRun, the test environment would fail with "no mock for WriteFiles".
+	// DryRun must still flow through to BuildAppFiles - it decides
+	// internally whether to actually write (see
+	// TestBuildAppFiles_DryRunWritesNothing at the activity level).
+	env.OnActivity(a.BuildAppFiles, mock.Anything, mock.MatchedBy(func(in activities.BuildAppFilesInput) bool {
+		return in.DryRun
+	})).Return(activities.BuildAppFilesResult{FilesWritten: 1}, nil)
 
 	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: true})
 
@@ -103,11 +98,14 @@ func TestSyncWorkloadsWorkflow_OneAppFailingStillProcessesTheOthers(t *testing.T
 		return in.AppName == "app-broken"
 	})).Return(activities.BuildAppFilesResult{}, errors.New("boom"))
 
+	appOkBuilt := false
 	env.OnActivity(a.BuildAppFiles, mock.Anything, mock.MatchedBy(func(in activities.BuildAppFilesInput) bool {
-		return in.AppName == "app-ok"
-	})).Return(activities.BuildAppFilesResult{Files: []activities.FileWrite{{Path: "/dest/app-ok/base/x.yaml", Content: "a"}}}, nil)
-
-	env.OnActivity(a.WriteFiles, mock.Anything, mock.Anything).Return(nil)
+		if in.AppName != "app-ok" {
+			return false
+		}
+		appOkBuilt = true
+		return true
+	})).Return(activities.BuildAppFilesResult{FilesWritten: 1}, nil)
 
 	env.ExecuteWorkflow(workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: false})
 
@@ -115,5 +113,5 @@ func TestSyncWorkloadsWorkflow_OneAppFailingStillProcessesTheOthers(t *testing.T
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "app-broken")
-	env.AssertActivityNumberOfCalls(t, "WriteFiles", 1)
+	require.True(t, appOkBuilt, "app-ok's build must still run even though app-broken failed")
 }

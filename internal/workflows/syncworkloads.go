@@ -112,33 +112,34 @@ type SyncAppResult struct {
 }
 
 // SyncAppWorkflow builds one app's manifests and, unless DryRun, writes
-// them. Keeping build and write together and scoped to a single app is what
-// keeps this child's own Temporal history bounded to one app's file sizes
-// instead of the whole source tree's - see SyncWorkloadsWorkflow's doc
-// comment.
+// them - both inside a single activity call, BuildAppFiles. Keeping build
+// and write together (as well as scoped to a single app) is what keeps this
+// child's own Temporal history bounded to one app's file *count* rather
+// than its file *content*: a separate WriteFiles call would still need that
+// content as its own input, carrying it across the boundary a second time
+// and leaving a single very large app just as exposed to Temporal's
+// payload-size limits as the original unfanned-out version was - see
+// BuildAppFiles's doc comment in internal/activities/activities.go.
 func SyncAppWorkflow(ctx workflow.Context, in SyncAppInput) (SyncAppResult, error) {
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
 	var a *activities.Activities
 
-	logger.Info("Extracting and transforming workspace", "app", in.AppName)
+	logger.Info("Extracting, transforming, and committing workspace", "app", in.AppName)
 	built, err := runActivity[activities.BuildAppFilesResult](ctx, a.BuildAppFiles, activities.BuildAppFilesInput{
 		Config:  in.Config,
 		AppName: in.AppName,
+		DryRun:  in.DryRun,
 	})
 	if err != nil {
 		return SyncAppResult{}, fmt.Errorf("building files: %w", err)
 	}
 
 	if in.DryRun {
-		logger.Info("Dry run: skipping commit", "wouldWriteFiles", len(built.Files))
-		return SyncAppResult{FilesWritten: len(built.Files)}, nil
+		logger.Info("Dry run: skipping commit", "wouldWriteFiles", built.FilesWritten)
+	} else {
+		logger.Info("Committed app", "app", in.AppName, "files", built.FilesWritten)
 	}
 
-	if err := workflow.ExecuteActivity(ctx, a.WriteFiles, activities.WriteFilesInput{Files: built.Files}).Get(ctx, nil); err != nil {
-		return SyncAppResult{}, fmt.Errorf("writing files: %w", err)
-	}
-	logger.Info("Committed app", "app", in.AppName, "files", len(built.Files))
-
-	return SyncAppResult{FilesWritten: len(built.Files)}, nil
+	return SyncAppResult{FilesWritten: built.FilesWritten}, nil
 }

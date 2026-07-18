@@ -45,15 +45,3 @@ func runActivity[T any](ctx workflow.Context, activityFn any, args ...any) (T, e
 	err := workflow.ExecuteActivity(ctx, activityFn, args...).Get(ctx, &result)
 	return result, err
 }
-
-func uniqueStrings(items []string) []string {
-	seen := make(map[string]bool, len(items))
-	out := make([]string, 0, len(items))
-	for _, i := range items {
-		if !seen[i] {
-			seen[i] = true
-			out = append(out, i)
-		}
-	}
-	return out
-}

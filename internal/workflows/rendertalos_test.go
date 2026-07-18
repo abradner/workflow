@@ -1,6 +1,7 @@
 package workflows_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -12,7 +13,15 @@ import (
 	"github.com/abradner/workflow/internal/workflows"
 )
 
-func TestRenderTalosWorkflow_RendersAllTemplatesWhenPlaceholdersResolve(t *testing.T) {
+// RenderTalosWorkflow now delegates its entire read/render/write flow to
+// one activity (RenderTalosTemplates), specifically so the Secure Note
+// content and rendered files never cross back into workflow code - see its
+// doc comment in internal/activities/activities.go. That means these tests
+// only assert on wiring (correct ItemID/TemplateDir/DryRun in, correct
+// counts out); the actual rendering behavior has its own coverage in
+// internal/activities/activities_test.go.
+
+func TestRenderTalosWorkflow_PassesConfigThroughAndReportsCounts(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	var a *activities.Activities
@@ -20,20 +29,11 @@ func TestRenderTalosWorkflow_RendersAllTemplatesWhenPlaceholdersResolve(t *testi
 	cfg := config.Config{TalosItemID: "item-123", TalosTemplateDir: "/talos"}
 	mockLoadConfig(env, a, cfg)
 
-	env.OnActivity(a.ReadOnePasswordNote, mock.Anything, activities.ReadOnePasswordNoteInput{ItemID: "item-123"}).
-		Return(activities.ReadOnePasswordNoteResult{Content: "cluster:\n  id: abc123\n"}, nil)
-
-	env.OnActivity(a.ReadTemplateFiles, mock.Anything, activities.ReadTemplateFilesInput{TemplateDir: "/talos"}).
-		Return(activities.ReadTemplateFilesResult{
-			Paths:    []string{"/talos/config.template.yaml"},
-			Contents: []string{"id: {{ cluster.id }}\n"},
-		}, nil)
-
-	var written []activities.FileWrite
-	env.OnActivity(a.WriteFiles, mock.Anything, mock.MatchedBy(func(in activities.WriteFilesInput) bool {
-		written = in.Files
-		return true
-	})).Return(nil)
+	env.OnActivity(a.RenderTalosTemplates, mock.Anything, activities.RenderTalosTemplatesInput{
+		ItemID:      "item-123",
+		TemplateDir: "/talos",
+		DryRun:      false,
+	}).Return(activities.RenderTalosTemplatesResult{SecretKeysLoaded: 3, TemplatesRendered: 2}, nil)
 
 	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: false})
 
@@ -42,14 +42,12 @@ func TestRenderTalosWorkflow_RendersAllTemplatesWhenPlaceholdersResolve(t *testi
 
 	var result workflows.RenderTalosResult
 	require.NoError(t, env.GetWorkflowResult(&result))
-	require.Equal(t, 1, result.TemplatesRendered)
-
-	require.Len(t, written, 1)
-	require.Equal(t, "/talos/config.yaml", written[0].Path)
-	require.Equal(t, "id: abc123\n", written[0].Content)
+	require.Equal(t, 3, result.SecretKeysLoaded)
+	require.Equal(t, 2, result.TemplatesRendered)
+	require.False(t, result.DryRun)
 }
 
-func TestRenderTalosWorkflow_FailsWithUnresolvedPlaceholders(t *testing.T) {
+func TestRenderTalosWorkflow_PassesDryRunThrough(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	var a *activities.Activities
@@ -57,14 +55,30 @@ func TestRenderTalosWorkflow_FailsWithUnresolvedPlaceholders(t *testing.T) {
 	cfg := config.Config{TalosItemID: "item-123", TalosTemplateDir: "/talos"}
 	mockLoadConfig(env, a, cfg)
 
-	env.OnActivity(a.ReadOnePasswordNote, mock.Anything, mock.Anything).
-		Return(activities.ReadOnePasswordNoteResult{Content: "cluster:\n  id: abc123\n"}, nil)
-	env.OnActivity(a.ReadTemplateFiles, mock.Anything, mock.Anything).
-		Return(activities.ReadTemplateFilesResult{
-			Paths:    []string{"/talos/config.template.yaml"},
-			Contents: []string{"id: {{ cluster.id }}\ntoken: {{ missing.token }}\n"},
-		}, nil)
-	// No WriteFiles mock - missing placeholders must fail before commit.
+	env.OnActivity(a.RenderTalosTemplates, mock.Anything, mock.MatchedBy(func(in activities.RenderTalosTemplatesInput) bool {
+		return in.DryRun
+	})).Return(activities.RenderTalosTemplatesResult{SecretKeysLoaded: 1, TemplatesRendered: 1}, nil)
+
+	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: true})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var result workflows.RenderTalosResult
+	require.NoError(t, env.GetWorkflowResult(&result))
+	require.True(t, result.DryRun)
+}
+
+func TestRenderTalosWorkflow_PropagatesActivityError(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var a *activities.Activities
+
+	cfg := config.Config{TalosItemID: "item-123", TalosTemplateDir: "/talos"}
+	mockLoadConfig(env, a, cfg)
+
+	env.OnActivity(a.RenderTalosTemplates, mock.Anything, mock.Anything).
+		Return(activities.RenderTalosTemplatesResult{}, errors.New("cannot hydrate: 1 unresolved placeholder(s)"))
 
 	env.ExecuteWorkflow(workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: false})
 

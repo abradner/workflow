@@ -50,17 +50,13 @@ func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 	}
 	mockLoadConfig(env, a, cfg)
 
-	// Loaded via its own activity, not off Config - see the doc comment on
-	// activities.LoadKeycloakCredentials.
-	env.OnActivity(a.LoadKeycloakCredentials, mock.Anything).
-		Return(activities.KeycloakCredentialsResult{AdminUsername: "admin", AdminPassword: "pass"}, nil)
-
 	env.OnActivity(a.CheckKeycloakReady, mock.Anything, mock.Anything).
 		Return(activities.CheckKeycloakReadyResult{Ready: true}, nil)
+	// RunKeycloakSetup loads the admin credentials itself (see its doc
+	// comment) rather than receiving them as input, so the mock only needs
+	// to match on BaseURL.
 	env.OnActivity(a.RunKeycloakSetup, mock.Anything, activities.RunKeycloakSetupInput{
-		BaseURL:       "https://pmn-keycloak.pmn.dev4.f-ck.xyz",
-		AdminUsername: "admin",
-		AdminPassword: "pass",
+		BaseURL: "https://pmn-keycloak.pmn.dev4.f-ck.xyz",
 	}).Return(activities.RunKeycloakSetupResult{XML: "<xml/>", B64: "PHhtbC8+"}, nil)
 
 	var written []activities.FileWrite
@@ -105,8 +101,6 @@ func TestSetupKeycloakWorkflow_OneEnvironmentFailingDoesNotStopTheOthers(t *test
 		return in.BaseURL == "https://pmn-keycloak.pmn.dev-ok.f-ck.xyz"
 	})).Return(activities.CheckKeycloakReadyResult{Ready: true}, nil)
 
-	env.OnActivity(a.LoadKeycloakCredentials, mock.Anything).
-		Return(activities.KeycloakCredentialsResult{AdminUsername: "admin", AdminPassword: "pass"}, nil)
 	env.OnActivity(a.RunKeycloakSetup, mock.Anything, mock.Anything).
 		Return(activities.RunKeycloakSetupResult{XML: "<xml/>", B64: "PHhtbC8+"}, nil)
 	env.OnActivity(a.WriteFiles, mock.Anything, mock.Anything).Return(nil)

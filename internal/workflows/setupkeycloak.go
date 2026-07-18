@@ -114,19 +114,12 @@ func SetupKeycloakEnvWorkflow(ctx workflow.Context, in SetupKeycloakEnvInput) er
 		return err
 	}
 
-	// Loaded via its own activity rather than read off cfg - see the doc
-	// comment on activities.LoadKeycloakCredentials for why: LoadConfig
-	// blanks this password out specifically so it doesn't appear in every
-	// workflow's history, only this one's.
-	creds, err := runActivity[activities.KeycloakCredentialsResult](ctx, a.LoadKeycloakCredentials)
-	if err != nil {
-		return fmt.Errorf("loading keycloak credentials: %w", err)
-	}
-
+	// RunKeycloakSetup loads the admin credentials itself rather than
+	// receiving them as input - see its doc comment in
+	// internal/activities/activities.go for why even a dedicated
+	// credentials-loading activity isn't good enough on its own.
 	setup, err := runActivity[activities.RunKeycloakSetupResult](ctx, a.RunKeycloakSetup, activities.RunKeycloakSetupInput{
-		BaseURL:       baseURL,
-		AdminUsername: creds.AdminUsername,
-		AdminPassword: creds.AdminPassword,
+		BaseURL: baseURL,
 	})
 	if err != nil {
 		return err

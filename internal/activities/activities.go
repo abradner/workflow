@@ -13,8 +13,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"go.temporal.io/sdk/activity"
+	"gopkg.in/yaml.v3"
 
 	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/domain"
@@ -26,6 +28,7 @@ import (
 	"github.com/abradner/workflow/internal/services/filesystem"
 	"github.com/abradner/workflow/internal/services/keycloaksetup"
 	"github.com/abradner/workflow/internal/services/onepassword"
+	"github.com/abradner/workflow/internal/services/templaterendering"
 	"github.com/abradner/workflow/internal/services/workspaceextractor"
 	"github.com/abradner/workflow/internal/transformers"
 )
@@ -90,35 +93,16 @@ func (a *Activities) LoadConfig(_ context.Context) (LoadConfigResult, error) {
 
 	// Blanked out deliberately: LoadConfig's result is recorded in every
 	// workflow's durable Temporal event history (visible via the Web
-	// UI/API/DB in external mode), but the Keycloak admin password is only
-	// ever needed by SetupKeycloakEnvWorkflow. Loading it there instead,
-	// via LoadKeycloakCredentials, keeps it out of every other workflow's
-	// history entirely.
+	// UI/API/DB in external mode). The Keycloak admin password is only
+	// ever needed inside RunKeycloakSetup, which loads it directly via its
+	// own config.Load() call rather than receiving it as input - see that
+	// activity's doc comment for why even a dedicated credentials activity
+	// isn't good enough (its result would still round-trip through
+	// workflow code on the way to RunKeycloakSetup's own input).
 	cfg.KeycloakAdmin = ""
 	cfg.KeycloakAdminPassword = ""
 
 	return LoadConfigResult{Config: *cfg}, nil
-}
-
-// KeycloakCredentialsResult carries the Keycloak admin bootstrap
-// credentials, loaded via their own activity rather than as part of
-// LoadConfigResult - see LoadConfig's doc comment for why.
-type KeycloakCredentialsResult struct {
-	AdminUsername string
-	AdminPassword string
-}
-
-// LoadKeycloakCredentials loads the Keycloak admin bootstrap credentials
-// from the worker's own environment, same as LoadConfig does for
-// everything else - kept as a separate activity, called only from
-// SetupKeycloakEnvWorkflow, so this password never appears in any other
-// workflow's history.
-func (a *Activities) LoadKeycloakCredentials(_ context.Context) (KeycloakCredentialsResult, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return KeycloakCredentialsResult{}, err
-	}
-	return KeycloakCredentialsResult{AdminUsername: cfg.KeycloakAdmin, AdminPassword: cfg.KeycloakAdminPassword}, nil
 }
 
 // --- Discovery ---------------------------------------------------------
@@ -150,25 +134,35 @@ func (a *Activities) DiscoverApps(_ context.Context, in DiscoverAppsInput) (Disc
 type BuildAppFilesInput struct {
 	Config  config.Config
 	AppName string
+	DryRun  bool
 }
 
 type BuildAppFilesResult struct {
-	Files []FileWrite
+	FilesWritten int
 }
 
 // BuildAppFiles extracts an app's manifests, runs the transformer pipeline,
-// and renders every result to its final YAML/text content.
+// renders every result to its final YAML/text content, and, unless DryRun,
+// writes it to disk.
 //
-// Extraction, transformation, and rendering are bundled into one activity
-// deliberately: the transformer pipeline is pure and could run directly in
-// workflow code, but the manifests it operates on are parsed YAML
-// (map[string]any) that may contain integers (e.g. a port number). Once
-// that crosses the workflow/activity boundary, Temporal's default JSON data
-// converter loses the int/float distinction (JSON doesn't have separate
-// types, so decoding into `any` always yields float64) - which can silently
-// turn `port: 80` into `port: 80.0` in the rendered YAML. Keeping
-// extract+transform+render together means only the final strings ever
-// cross the boundary, sidestepping the problem entirely.
+// Extraction, transformation, rendering, and writing are all bundled into
+// one activity deliberately, for two independent reasons:
+//
+//  1. The transformer pipeline is pure and could run directly in workflow
+//     code, but the manifests it operates on are parsed YAML
+//     (map[string]any) that may contain integers (e.g. a port number). Once
+//     that crosses the workflow/activity boundary, Temporal's default JSON
+//     data converter loses the int/float distinction (decoding into `any`
+//     always yields float64), which can silently turn `port: 80` into
+//     `port: 80.0` in the rendered YAML.
+//  2. Rendered manifest content can be large enough, for a single app, to
+//     risk Temporal's default 2MB payload/4MB gRPC message limits - and
+//     that risk exists whether the content crosses the boundary once (as
+//     this activity's result) or twice (also as a separate WriteFiles
+//     call's input, the way earlier versions of this workflow did it).
+//     Writing here too means the rendered content never has to leave this
+//     activity at all - only a final file count crosses back into
+//     SyncAppWorkflow.
 func (a *Activities) BuildAppFiles(_ context.Context, in BuildAppFilesInput) (BuildAppFilesResult, error) {
 	cfg := in.Config
 
@@ -210,7 +204,20 @@ func (a *Activities) BuildAppFiles(_ context.Context, in BuildAppFilesInput) (Bu
 		})
 	}
 
-	return BuildAppFilesResult{Files: files}, nil
+	if in.DryRun {
+		return BuildAppFilesResult{FilesWritten: len(files)}, nil
+	}
+
+	for _, f := range files {
+		if err := a.FS.CreateDirectory(filepath.Dir(f.Path)); err != nil {
+			return BuildAppFilesResult{}, fmt.Errorf("creating directory for %s: %w", f.Path, err)
+		}
+		if err := a.FS.WriteFile(f.Path, f.Content); err != nil {
+			return BuildAppFilesResult{}, fmt.Errorf("writing %s: %w", f.Path, err)
+		}
+	}
+
+	return BuildAppFilesResult{FilesWritten: len(files)}, nil
 }
 
 func renderManifest(path string, content any) (string, error) {
@@ -228,7 +235,12 @@ type WriteFilesInput struct {
 }
 
 // WriteFiles commits a batch of already-rendered files to disk, creating
-// parent directories as needed. Used by every workflow's commit phase.
+// parent directories as needed. Used where the rendered content is small
+// and non-sensitive enough that crossing the workflow boundary as its own
+// activity input isn't a concern (GenerateArgocd's manifests,
+// SetupKeycloak's SSO descriptor) - see BuildAppFiles and
+// RenderTalosTemplates for the two cases where it wasn't and writing was
+// folded into the activity that produces the content instead.
 func (a *Activities) WriteFiles(_ context.Context, in WriteFilesInput) error {
 	for _, f := range in.Files {
 		if err := a.FS.CreateDirectory(filepath.Dir(f.Path)); err != nil {
@@ -327,53 +339,110 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 
 // --- RenderTalos ------------------------------------------------------------
 
-type ReadOnePasswordNoteInput struct {
-	ItemID string
-}
-
-type ReadOnePasswordNoteResult struct {
-	Content string
-}
-
-// ReadOnePasswordNote reads a Secure Note's notesPlain field.
-func (a *Activities) ReadOnePasswordNote(ctx context.Context, in ReadOnePasswordNoteInput) (ReadOnePasswordNoteResult, error) {
-	content, err := a.OnePassword.ReadNote(ctx, in.ItemID)
-	if err != nil {
-		return ReadOnePasswordNoteResult{}, err
-	}
-	return ReadOnePasswordNoteResult{Content: content}, nil
-}
-
-type ReadTemplateFilesInput struct {
+type RenderTalosTemplatesInput struct {
+	ItemID      string
 	TemplateDir string
+	DryRun      bool
 }
 
-type ReadTemplateFilesResult struct {
-	// Paths[i] and Contents[i] describe the same file - parallel slices
-	// rather than a map, so the order Discovery found them in survives
-	// the trip back into workflow code untouched.
-	Paths    []string
-	Contents []string
+type RenderTalosTemplatesResult struct {
+	SecretKeysLoaded  int
+	TemplatesRendered int
 }
 
-// ReadTemplateFiles finds every *.template.yaml under TemplateDir and reads
-// its raw content.
-func (a *Activities) ReadTemplateFiles(_ context.Context, in ReadTemplateFilesInput) (ReadTemplateFilesResult, error) {
+// RenderTalosTemplates reads the Talos secrets.yaml Secure Note, flattens
+// it, substitutes every *.template.yaml file's "{{ dotted.key }}"
+// placeholders, and, unless DryRun, writes the rendered files.
+//
+// The Secure Note's content is real cluster bootstrap material (Talos CA
+// keys, tokens, and the like), and the rendered output is that same
+// material substituted into otherwise-public template files - so, exactly
+// like SyncEnvSecrets, none of it can be allowed to appear as an activity
+// result or workflow input: Temporal records both, in plaintext, in its
+// durable event history (visible via the Web UI/API/DB in external mode).
+// Reading, parsing, rendering, and writing all happen inside this one
+// activity call so only a final key/file *count* ever crosses back into
+// RenderTalosWorkflow.
+func (a *Activities) RenderTalosTemplates(ctx context.Context, in RenderTalosTemplatesInput) (RenderTalosTemplatesResult, error) {
+	noteContent, err := a.OnePassword.ReadNote(ctx, in.ItemID)
+	if err != nil {
+		return RenderTalosTemplatesResult{}, fmt.Errorf("reading 1Password note: %w", err)
+	}
+
+	var secretsHash map[string]any
+	if err := yaml.Unmarshal([]byte(noteContent), &secretsHash); err != nil {
+		return RenderTalosTemplatesResult{}, fmt.Errorf("parsing Secure Note YAML: %w", err)
+	}
+	flatSecrets := templaterendering.FlattenHash(secretsHash)
+
 	paths, err := a.FS.Glob(filepath.Join(in.TemplateDir, "*.template.yaml"))
 	if err != nil {
-		return ReadTemplateFilesResult{}, err
+		return RenderTalosTemplatesResult{}, err
 	}
 
-	contents := make([]string, len(paths))
-	for i, path := range paths {
+	files := make([]FileWrite, 0, len(paths))
+	var allMissing []string
+
+	for _, path := range paths {
 		content, err := a.FS.ReadFile(path)
 		if err != nil {
-			return ReadTemplateFilesResult{}, fmt.Errorf("reading %s: %w", path, err)
+			return RenderTalosTemplatesResult{}, fmt.Errorf("reading %s: %w", path, err)
 		}
-		contents[i] = content
+
+		missing := templaterendering.MissingKeys(content, flatSecrets)
+		if len(missing) > 0 {
+			allMissing = append(allMissing, missing...)
+			continue
+		}
+
+		rendered, err := templaterendering.Render(content, flatSecrets)
+		if err != nil {
+			return RenderTalosTemplatesResult{}, err
+		}
+
+		outputName := strings.TrimSuffix(filepath.Base(path), ".template.yaml") + ".yaml"
+		files = append(files, FileWrite{
+			Path:    filepath.Join(in.TemplateDir, outputName),
+			Content: rendered,
+		})
 	}
 
-	return ReadTemplateFilesResult{Paths: paths, Contents: contents}, nil
+	if unresolved := uniqueStrings(allMissing); len(unresolved) > 0 {
+		return RenderTalosTemplatesResult{}, fmt.Errorf(
+			"cannot hydrate: %d unresolved placeholder(s) - add them to the Secure Note or fix the templates",
+			len(unresolved))
+	}
+
+	result := RenderTalosTemplatesResult{SecretKeysLoaded: len(flatSecrets), TemplatesRendered: len(files)}
+	if in.DryRun {
+		return result, nil
+	}
+
+	for _, f := range files {
+		if err := a.FS.CreateDirectory(filepath.Dir(f.Path)); err != nil {
+			return RenderTalosTemplatesResult{}, fmt.Errorf("creating directory for %s: %w", f.Path, err)
+		}
+		if err := a.FS.WriteFile(f.Path, f.Content); err != nil {
+			return RenderTalosTemplatesResult{}, fmt.Errorf("writing %s: %w", f.Path, err)
+		}
+	}
+
+	return result, nil
+}
+
+// uniqueStrings returns items with duplicates removed, preserving first-seen
+// order - used to de-duplicate missing placeholder names gathered across
+// multiple template files before reporting them.
+func uniqueStrings(items []string) []string {
+	seen := make(map[string]bool, len(items))
+	out := make([]string, 0, len(items))
+	for _, i := range items {
+		if !seen[i] {
+			seen[i] = true
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // --- SetupKeycloak ----------------------------------------------------------
@@ -393,9 +462,7 @@ func (a *Activities) CheckKeycloakReady(ctx context.Context, in CheckKeycloakRea
 }
 
 type RunKeycloakSetupInput struct {
-	BaseURL       string
-	AdminUsername string
-	AdminPassword string
+	BaseURL string
 }
 
 type RunKeycloakSetupResult struct {
@@ -405,11 +472,27 @@ type RunKeycloakSetupResult struct {
 
 // RunKeycloakSetup provisions the realm, clients, groups, and seed users,
 // and returns the exported SAML descriptor.
+//
+// The admin credentials are loaded directly from the worker's own
+// environment here, rather than received as input. An earlier version had
+// a dedicated LoadKeycloakCredentials activity that SetupKeycloakEnvWorkflow
+// called first and passed the result into this activity's input - which
+// kept the password out of every *other* workflow's history (the original
+// problem, since it used to live in the shared LoadConfig result), but
+// still let it round-trip through this one workflow's history twice: once
+// as LoadKeycloakCredentials's result, once as this activity's own input.
+// Loading it directly here means it only ever exists inside this one
+// activity call - it never has to cross back into workflow code at all.
 func (a *Activities) RunKeycloakSetup(ctx context.Context, in RunKeycloakSetupInput) (RunKeycloakSetupResult, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return RunKeycloakSetupResult{}, fmt.Errorf("loading keycloak credentials: %w", err)
+	}
+
 	client := a.NewKeycloak(in.BaseURL)
 	svc := keycloaksetup.New(client, activity.GetLogger(ctx))
 
-	descriptors, err := svc.Setup(ctx, in.AdminUsername, in.AdminPassword)
+	descriptors, err := svc.Setup(ctx, cfg.KeycloakAdmin, cfg.KeycloakAdminPassword)
 	if err != nil {
 		return RunKeycloakSetupResult{}, err
 	}

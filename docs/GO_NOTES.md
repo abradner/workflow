@@ -357,39 +357,51 @@ exactly like `OnActivity`.
 
 ## 11. Temporal's event history is not a secrets vault
 
-A follow-up review (after §10's decomposition) caught something more serious than payload size:
-`Sync1PasswordWorkflow`'s original per-environment child took the AWS secrets extracted by the
-parent as **plain child-workflow input**, and `LoadConfig`'s result included the Keycloak admin
-password as a plain struct field. Both are activity/workflow inputs and results - and Temporal
-records every one of those, byte-for-byte, in its durable event history. In external/durable mode
-(the docker-compose setup this whole tool supports), that history lives in Postgres and is
-browsable through the Temporal Web UI and API. Concretely: anyone with read access to that Postgres
-instance, or to the Web UI, could have read every AWS secret this tool ever migrated, and the
-Keycloak admin password, just by opening the right workflow execution - even for workflow runs that
-never touched Keycloak at all, since `LoadConfig` was called by all five.
+A round of follow-up review (after §10's decomposition) caught something more serious than payload
+size: several workflows let real secret material cross into workflow code as an activity result or
+workflow input. Temporal records every one of those, byte-for-byte, in its durable event history. In
+external/durable mode (the docker-compose setup this whole tool supports), that history lives in
+Postgres and is browsable through the Temporal Web UI and API - so anyone with read access to either
+could read whatever crossed that boundary, just by opening the right workflow execution.
 
-**The fix, in both cases, was the same shape**: never let the sensitive value leave the one activity
-that needs it.
+**The fix, every time, was the same shape**: never let the sensitive value leave the one activity
+that needs it. Four instances of this got caught and fixed, each a variation on the same idiom §7
+already used for `BuildAppFiles`'s int/float problem:
 
-- `Sync1PasswordEnvWorkflow` used to receive `Secrets []domain.ExtractedSecret` as workflow input
-  (real AWS secret values) and separately call an `IngestVaultItem` activity with the mapped
-  result - two more places those values got recorded. The fix bundles extraction, mapping, *and*
-  ingestion into one activity, `SyncEnvSecrets` (`internal/activities/activities.go`) - the same
-  "keep it inside one activity" idiom §7 already used for `BuildAppFiles`'s int/float problem, just
-  applied for a different reason. Now only a final secret *count* ever crosses back into workflow
-  code. The cost: extraction happens once per target environment instead of once shared across all
-  of them (see the doc comment on `SyncEnvSecrets` for the full trade-off, including why that
-  activity now runs with retries disabled and what that means for transient AWS failures).
-- `LoadConfig`'s result included `Config.KeycloakAdminPassword` regardless of which workflow called
-  it. The fix: `LoadConfig` blanks that field before returning, and a new `LoadKeycloakCredentials`
-  activity loads it separately - called only from `SetupKeycloakEnvWorkflow`, the one workflow that
-  actually needs it. Every other workflow's history never sees it at all.
+- **AWS secrets** (`Sync1PasswordEnvWorkflow`): used to receive `Secrets []domain.ExtractedSecret` as
+  child-workflow input (extracted once by the parent) and separately call an `IngestVaultItem`
+  activity with the mapped result - three places those values got recorded. Fixed by bundling
+  extraction, mapping, and ingestion into one activity, `SyncEnvSecrets`. Only a final secret *count*
+  crosses back into workflow code now. Cost: extraction happens once per target environment instead
+  of once shared across all of them (see the doc comment for the full trade-off, including why that
+  activity runs with retries disabled and what that means for transient AWS failures).
+- **Talos secrets** (`RenderTalosWorkflow`): used to read the Secure Note via one activity, parse and
+  render templates in workflow code, then write via a separate `WriteFiles` call - the raw Secure
+  Note content and the rendered (secret-bearing) files each crossed a boundary of their own. Fixed by
+  bundling read+parse+render+write into one activity, `RenderTalosTemplates`. The workflow itself
+  shrank to a single activity call.
+- **The Keycloak admin password** - this one took two attempts, which is itself worth remembering.
+  The first fix moved `KeycloakAdminPassword` out of `LoadConfig`'s result (shared by all five
+  workflows) into a dedicated `LoadKeycloakCredentials` activity called only from
+  `SetupKeycloakEnvWorkflow`. That solved "every workflow's history has this password" - but a
+  second review round correctly pointed out it didn't solve "this one workflow's history has this
+  password": `LoadKeycloakCredentials`'s result still crossed back into workflow code, then back out
+  again as `RunKeycloakSetup`'s own input. **Moving a secret to a narrower activity isn't the same as
+  keeping it inside one.** The actual fix: delete `LoadKeycloakCredentials` entirely, and have
+  `RunKeycloakSetup` call `config.Load()` itself, inline, for the one field it needs. The password
+  now only ever exists inside that single activity invocation.
+- **A single large app's manifests** (`SyncAppWorkflow`, P2 rather than P1 - a size risk, not a
+  secrecy one, but the same fix): fanning out to one child workflow per app (§10) bounded the
+  *aggregate* payload risk across a whole source tree, but `BuildAppFiles`'s result and a separate
+  `WriteFiles` call's input still both carried one app's full rendered content - so one
+  unusually-large single app could still trip Temporal's limits within its own child. Fixed by
+  folding the write into `BuildAppFiles` itself (with a `DryRun` field to still support a
+  plan-only run), the same way `RenderTalosTemplates` does.
 
 **The general principle**: treat "does this activity result or workflow input contain something
-that must stay secret?" as its own design question, separate from payload size or determinism.
-Payload size asks "is this too *big* to cross the boundary safely?"; this asks "is this too
-*sensitive* to cross the boundary **at all**, in plaintext, into storage this process doesn't
-control?" A value can pass the size check and still fail this one.
+that must stay secret (or unboundedly large)?" as its own design question, separate from
+determinism. And when you fix it, check that the fix actually keeps the value inside one activity
+call - not just moves it to a smaller one that still hands it back to workflow code in between.
 
 **What this doesn't solve**: Temporal has an official answer for cases where sensitive data
 genuinely can't be kept inside one activity call - a [`PayloadCodec`](https://docs.temporal.io/production-deployment/data-encryption)
