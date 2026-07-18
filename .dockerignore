@@ -1,0 +1,9 @@
+# Local credentials - never send these into the Docker build context. The
+# build stage's `COPY . .` would otherwise ship a real .env (AWS creds, the
+# 1Password service-account token, the Keycloak admin password) into a
+# cached image layer, even though the final image never needs it.
+.env
+.env.*
+
+# Version control metadata isn't needed for the build.
+.git

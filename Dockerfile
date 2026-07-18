@@ -15,9 +15,13 @@ RUN CGO_ENABLED=0 go build -o /out/workflow ./cmd/workflow
 # 1Password's official apt repo (see https://developer.1password.com/docs/cli/get-started/)
 # in this Debian-based build stage, then copied into the minimal final image below.
 FROM golang:1-bookworm AS op-cli
+# Architecture is resolved at build time via dpkg, not hardcoded to amd64,
+# so this stage works whether it's built on/for amd64 or arm64 (e.g. Apple
+# Silicon Docker Desktop) - matching 1Password's own documented install
+# command (see the link above).
 RUN curl -sS https://downloads.1password.com/linux/keys/1password.asc \
         | gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main" \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" \
         > /etc/apt/sources.list.d/1password.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends 1password-cli \
