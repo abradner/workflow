@@ -1,5 +1,7 @@
 # Workflow
 
+[![CI](https://github.com/abradner/workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/abradner/workflow/actions/workflows/ci.yml)
+
 A Go + [Temporal](https://temporal.io) ETL pipeline for migrating, transforming and adapting Kubernetes/GitOps things.
 
 This is a from-scratch Go rebuild of an earlier Ruby version of the same tool: same jobs, same
