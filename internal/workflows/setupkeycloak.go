@@ -29,16 +29,23 @@ type SetupKeycloakResult struct {
 	DryRun                bool
 }
 
-// SetupKeycloakWorkflow provisions the "neons" realm (OIDC + SAML clients,
-// groups, seed users) in every target environment's Keycloak, then writes
-// out its exported SAML descriptor.
+// SetupKeycloakWorkflow fans out one SetupKeycloakEnvWorkflow child per
+// target environment, each of which waits for that environment's Keycloak
+// to come up, provisions the "neons" realm (OIDC + SAML clients, groups,
+// seed users), and writes out its exported SAML descriptor.
 //
-// Unlike the other four orchestrators, essentially all of this tool's real
-// work happens in what Ruby called the "commit phase" - so under DryRun it
-// does nothing at all beyond logging the plan, exactly like the original.
+// Unlike the other four workflows, essentially all of this tool's real work
+// happens in what Ruby called the "commit phase" - so under DryRun it does
+// nothing at all beyond logging the plan, exactly like the original.
 //
 // One environment's failure doesn't stop the others - matches Ruby's
-// per-environment rescue in SetupKeycloak#commit_phase.
+// per-environment rescue in SetupKeycloak#commit_phase. Running each
+// environment as its own child workflow gets that isolation "for free" (a
+// failed child just reports its own error to the parent) while also
+// letting every environment's readiness poll and provisioning run
+// concurrently instead of one after another, the way the original
+// sequential loop did - see docs/GO_NOTES.md's "Decomposing the monolith"
+// section.
 func SetupKeycloakWorkflow(ctx workflow.Context, in SetupKeycloakInput) (SetupKeycloakResult, error) {
 	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
 	logger := workflow.GetLogger(ctx)
@@ -61,11 +68,21 @@ func SetupKeycloakWorkflow(ctx workflow.Context, in SetupKeycloakInput) (SetupKe
 		return result, nil
 	}
 
-	for _, env := range cfg.Environments {
-		baseURL := fmt.Sprintf("https://pmn-keycloak.%s.%s.%s", cfg.ProjectName, env, cfg.TLD)
-		logger.Info("Setting up Keycloak", "env", env, "url", baseURL)
+	// Fan out: one child per environment, started before waiting on any of
+	// them so they run concurrently.
+	futures := make([]workflow.ChildWorkflowFuture, len(cfg.Environments))
+	for i, env := range cfg.Environments {
+		futures[i] = workflow.ExecuteChildWorkflow(ctx, SetupKeycloakEnvWorkflow, SetupKeycloakEnvInput{
+			Config: cfg,
+			Env:    env,
+		})
+	}
 
-		if err := setupOneEnvironment(ctx, a, cfg, env, baseURL); err != nil {
+	// Fan in: a failed child only ever reports its own environment's error -
+	// it can't stop its siblings, which have already been scheduled.
+	for i, f := range futures {
+		env := cfg.Environments[i]
+		if err := f.Get(ctx, nil); err != nil {
 			logger.Error("Failed to setup Keycloak", "env", env, "error", err.Error())
 			continue
 		}
@@ -75,10 +92,24 @@ func SetupKeycloakWorkflow(ctx workflow.Context, in SetupKeycloakInput) (SetupKe
 	return result, nil
 }
 
-func setupOneEnvironment(ctx workflow.Context, a *activities.Activities, cfg config.Config, env, baseURL string) error {
-	logger := workflow.GetLogger(ctx)
+// SetupKeycloakEnvInput is one environment's share of SetupKeycloakWorkflow's
+// work - the unit SetupKeycloakWorkflow fans out over.
+type SetupKeycloakEnvInput struct {
+	Config config.Config
+	Env    string
+}
 
-	logger.Info("Waiting for Keycloak to be ready", "url", baseURL)
+// SetupKeycloakEnvWorkflow waits for one environment's Keycloak to become
+// ready, provisions it, and writes out its exported SAML descriptor.
+func SetupKeycloakEnvWorkflow(ctx workflow.Context, in SetupKeycloakEnvInput) error {
+	ctx = workflow.WithActivityOptions(ctx, defaultActivityOptions())
+	logger := workflow.GetLogger(ctx)
+	var a *activities.Activities
+
+	cfg := in.Config
+	baseURL := fmt.Sprintf("https://pmn-keycloak.%s.%s.%s", cfg.ProjectName, in.Env, cfg.TLD)
+	logger.Info("Setting up Keycloak", "env", in.Env, "url", baseURL)
+
 	if err := waitForKeycloakReady(ctx, a, baseURL); err != nil {
 		return err
 	}
@@ -92,7 +123,7 @@ func setupOneEnvironment(ctx workflow.Context, a *activities.Activities, cfg con
 		return err
 	}
 
-	appDir := filepath.Join(cfg.DestDir, "pmn-keycloak", "overlay", env)
+	appDir := filepath.Join(cfg.DestDir, "pmn-keycloak", "overlay", in.Env)
 	files := []activities.FileWrite{
 		{Path: filepath.Join(appDir, "sso.xml"), Content: setup.XML},
 		{Path: filepath.Join(appDir, "sso.xml.b64"), Content: setup.B64},

@@ -220,3 +220,137 @@ but embeddable directly in a Go program instead of a separate process.
 - **`go vet` and `gofmt -l .`** are both worth running before every commit - `gofmt` on this codebase
   will silently reformat things like struct field alignment; `go vet` catches real bugs (e.g. a
   format-string/argument mismatch) that compile fine but are wrong.
+
+## 10. Decomposing the monolith: child workflows, fan-out/fan-in
+
+The first pass at this port (§7-§9) got the Ruby → Temporal shape right - hydrate, act, commit - but
+it still ran each workflow as one big linear function, looping over apps or environments in plain
+Go `for` loops and calling activities one at a time. That's a faithful *port*, but it leaves real
+Temporal capability on the table. This section covers the second pass: pulling the per-app and
+per-environment work out into their own **child workflows**, and why that's a different thing than
+"just add a goroutine."
+
+### What a child workflow actually is
+
+A workflow you start from inside another workflow, via `workflow.ExecuteChildWorkflow(ctx, fn,
+input)`, is not a function call and not a goroutine - it's a **separate, independent Temporal
+workflow execution**, with its own workflow ID, its own event history, its own retry/timeout
+options, visible as its own row in the Temporal Web UI. The parent just happens to have started it
+and (usually) waits for its result.
+
+```go
+futures := make([]workflow.ChildWorkflowFuture, len(apps))
+for i, app := range apps {
+    futures[i] = workflow.ExecuteChildWorkflow(ctx, SyncAppWorkflow, SyncAppInput{AppName: app})
+}
+// every child is now running concurrently - none of them waited for a `.Get()` call
+
+var filesWritten int
+for i, f := range futures {
+    var result SyncAppResult
+    if err := f.Get(ctx, &result); err != nil { /* handle */ }
+    filesWritten += result.FilesWritten
+}
+```
+
+`ExecuteChildWorkflow` returns its future immediately without blocking - that's what makes the
+**fan-out** loop above start every child before any of them has necessarily finished (or even
+started running). The **fan-in** loop right after blocks on each future's `.Get()` in turn, which is
+what makes the parent actually wait for all of them. Write both loops, in that order, and you get
+real concurrency for free - Temporal schedules however many children the worker's concurrency
+settings allow, in parallel, without you managing threads or a worker pool yourself.
+
+### Why this is worth it here specifically
+
+This codebase now has three parent/child pairs: `SyncWorkloadsWorkflow`/`SyncAppWorkflow` (one
+child per app), `SetupKeycloakWorkflow`/`SetupKeycloakEnvWorkflow`, and
+`Sync1PasswordWorkflow`/`Sync1PasswordEnvWorkflow` (both one child per target environment). Two
+different motivations line up behind that split:
+
+1. **Bounding payload size.** This is a real bug a PR reviewer (an automated Codex review, not a
+   human) caught on the *first* pass: `SyncWorkloadsWorkflow` used to build every app's rendered
+   files into one `allFiles` slice and hand the whole thing to a single final `WriteFiles` activity
+   call. Every activity result and every activity call's arguments get recorded into Temporal's
+   event history - and Temporal enforces a default 2MB payload / 4MB gRPC message limit on any single
+   one of those. A big enough source tree (or just enough apps) would eventually blow that limit and
+   fail the whole sync before writing anything. Per-app children fix this structurally, not just by
+   coincidence: `SyncAppWorkflow`'s own history only ever holds *one app's* files, because that's all
+   that ever crosses an activity boundary inside it. The parent's own history stays tiny - it only
+   ever sees small `SyncAppResult{FilesWritten int}` summaries back from each child, never file
+   content. No matter how large the whole source tree grows, no single payload anywhere in this
+   workflow scales with it - only with one app's share.
+2. **Genuine parallelism for genuinely independent work.** Every app's build-and-commit is
+   independent of every other app's; every environment's Keycloak setup and every environment's
+   1Password sync is independent of every other environment's. The original sequential `for` loops
+   processed them one at a time for no real reason - nothing about extracting AWS secrets for
+   environment A depends on having finished environment B first. Child workflows turn "independent
+   in principle" into "concurrent in practice," and it costs nothing extra to write.
+
+### Two different fan-in strategies, on purpose
+
+`SetupKeycloakWorkflow` and the other two use *different* logic for what to do when a child fails,
+and that difference isn't an oversight - it's carried over from what the original Ruby code did:
+
+- **`SetupKeycloakWorkflow`: isolate and continue.** The Ruby original explicitly rescued each
+  environment's setup individually (`SetupKeycloak#commit_phase` had a per-environment `rescue`), so
+  one broken environment never stopped the others from being provisioned. The child-workflow version
+  preserves that exactly: the fan-in loop calls `.Get()` on every future, logs and `continue`s past a
+  failure, and only increments `EnvironmentsSucceeded` on success. The workflow as a whole still
+  "succeeds" (no error) even if some environments failed - the result struct is how a caller finds
+  out which.
+- **`SyncWorkloadsWorkflow` and `Sync1PasswordWorkflow`: collect every failure, still fail overall.**
+  Neither Ruby original rescued per-unit failures - a broken app or a broken environment failed the
+  whole run. That contract is preserved (any single failure still fails the workflow), but *how* the
+  failures are collected changed for the better: instead of stopping dead at the first failure (as a
+  sequential loop does), every child still gets to run to completion, and every failure is reported
+  together via [`errors.Join`](https://pkg.go.dev/errors#Join) (Go 1.20+) - which lets you wrap
+  multiple errors into one `error` value that still works with `errors.Is`/`errors.As` against any of
+  them:
+
+  ```go
+  var errs error
+  for i, f := range futures {
+      if err := f.Get(ctx, &result); err != nil {
+          errs = errors.Join(errs, fmt.Errorf("app %s: %w", apps[i], err))
+      }
+  }
+  if errs != nil {
+      return Result{}, errs // reports every failing app/environment, not just the first
+  }
+  ```
+
+  This is a strict improvement over the original sequential behavior with no change to the pass/fail
+  contract itself: you now find out about *every* broken app in one run instead of fixing one, rerunning,
+  discovering the next, rerunning again.
+
+### When *not* to decompose
+
+`GenerateArgocdWorkflow` and `RenderTalosWorkflow` were deliberately left as single linear
+workflows. Decomposition isn't free - it's another workflow type to register, another
+input/output struct pair, another indirection to read through - so it should earn its keep. Neither
+of these does:
+
+- **`GenerateArgocdWorkflow`** has no per-app or per-environment *I/O* to isolate at all - manifest
+  generation is pure, in-memory string/YAML building with no activity calls per unit, and the one
+  real activity call (`WriteFiles`) handles manifests small enough that payload size was never a
+  risk. There's nothing to parallelize and nothing to bound.
+- **`RenderTalosWorkflow`** reads one Secure Note and one template directory as a single unit - there
+  is no natural "per-something" boundary to fan out over in the first place, and the template set is
+  small and fixed in size.
+
+The lesson generalizes past this codebase: reach for a child workflow when you have a genuine
+per-unit **payload-size** risk, a genuine per-unit **failure-isolation** need, or genuine per-unit
+**independent work** worth running concurrently - not as a default way to structure every workflow.
+A workflow with no natural unit to split on gains nothing from being split.
+
+### Testing child workflows
+
+`TestWorkflowEnvironment` (§8) executes a real child workflow inline, using the same mocked
+activities as its parent, exactly like a normal (non-child) workflow call - **except** it requires
+the child's workflow function to be explicitly registered first with `env.RegisterWorkflow(...)`,
+the same call you'd make on a real worker (`internal/temporalutil/register.go`). Forget it and the
+test panics immediately with `unable to find workflow type: ... Supported types: [...]` naming
+exactly what *is* registered - a clear, fast failure, not a silent no-op. If you ever want to stub a
+child wholesale instead of letting it run for real (useful for a parent-only test where the child's
+own behavior is covered elsewhere), `env.OnWorkflow(ChildFn, mock.Anything).Return(...)` works
+exactly like `OnActivity`.

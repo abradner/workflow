@@ -8,7 +8,9 @@ instead of a hand-rolled Runner/Orchestrator framework. The original Ruby implem
 in full under [`ruby-legacy/`](ruby-legacy/) for side-by-side reference - it's not part of the Go
 module or build, just a frozen snapshot for comparison. See the
 [Ruby → Go File Map](AI_ONBOARDING.md#ruby--go-file-map) in `AI_ONBOARDING.md` for exactly which
-Go file replaces which Ruby file.
+Go file replaces which Ruby file, or [`docs/MIGRATION_PLAYBOOK.md`](docs/MIGRATION_PLAYBOOK.md) for
+a repo-agnostic writeup of this same migration's concept map and lessons, meant to be reused on a
+different Ruby → Temporal migration later.
 
 There are five workflows, each its own CLI command:
 
@@ -57,6 +59,13 @@ extract → transform → commit discipline the Ruby version enforced by convent
   Temporal or filesystem involvement at all.
 - **Domain / manifest** (`internal/domain`, `internal/manifest`) are small framework-free types and
   helpers shared across the above.
+
+Three of the five workflows fan out to a **child workflow per unit of work** and run them
+concurrently: `sync` → one child per app, `sync-1p` and `setup-keycloak` → one child per target
+environment. This bounds every activity payload to one unit's own size (instead of the whole run's)
+and lets independent units process in parallel. `setup-argo` and `render-talos` stay single linear
+workflows - neither has a per-unit I/O boundary worth splitting on. See `docs/GO_NOTES.md`'s
+"Decomposing the monolith" section for the full reasoning.
 
 See `docs/GO_NOTES.md` for a from-first-principles walkthrough of the Go and Temporal concepts this
 codebase leans on.

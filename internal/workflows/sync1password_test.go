@@ -20,6 +20,7 @@ func strptr(s string) *string { return &s }
 func TestSync1PasswordWorkflow_MapsAndIngestsPerEnvironment(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{
@@ -75,6 +76,7 @@ func TestSync1PasswordWorkflow_MapsAndIngestsPerEnvironment(t *testing.T) {
 func TestSync1PasswordWorkflow_DryRunSkipsIngestion(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
@@ -100,6 +102,7 @@ func TestSync1PasswordWorkflow_DryRunSkipsIngestion(t *testing.T) {
 func TestSync1PasswordWorkflow_IngestFailureIsNotRetried(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}

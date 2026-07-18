@@ -19,10 +19,13 @@ const TaskQueue = "workflow-engine"
 // worker built this way can run any of the five CLI commands.
 func RegisterAll(r worker.Registry, acts *activities.Activities) {
 	r.RegisterWorkflow(workflows.SyncWorkloadsWorkflow)
+	r.RegisterWorkflow(workflows.SyncAppWorkflow)
 	r.RegisterWorkflow(workflows.GenerateArgocdWorkflow)
 	r.RegisterWorkflow(workflows.Sync1PasswordWorkflow)
+	r.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	r.RegisterWorkflow(workflows.RenderTalosWorkflow)
 	r.RegisterWorkflow(workflows.SetupKeycloakWorkflow)
+	r.RegisterWorkflow(workflows.SetupKeycloakEnvWorkflow)
 
 	// Activities is a struct pointer, so this registers every one of its
 	// exported methods (DiscoverApps, BuildAppFiles, ...) as an activity

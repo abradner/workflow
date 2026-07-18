@@ -15,6 +15,7 @@ import (
 func TestSetupKeycloakWorkflow_DryRunDoesNothing(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.SetupKeycloakEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", DestDir: "/dest"}
@@ -38,6 +39,7 @@ func TestSetupKeycloakWorkflow_DryRunDoesNothing(t *testing.T) {
 func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.SetupKeycloakEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{
@@ -83,6 +85,7 @@ func TestSetupKeycloakWorkflow_ProvisionsAReadyEnvironment(t *testing.T) {
 func TestSetupKeycloakWorkflow_OneEnvironmentFailingDoesNotStopTheOthers(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.SetupKeycloakEnvWorkflow)
 	var a *activities.Activities
 
 	cfg := config.Config{Environments: []string{"dev-broken", "dev-ok"}, ProjectName: "pmn", TLD: "f-ck.xyz", DestDir: "/dest"}

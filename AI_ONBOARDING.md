@@ -6,7 +6,9 @@
 commit Kubernetes/GitOps manifests, AWS→1Password secret migrations, Talos template hydration, and
 Keycloak provisioning. It's a from-scratch Go rebuild of an earlier Ruby version (see git history
 before this rebuild) - same jobs, same `.env` configuration surface, same output; Temporal replaces
-the Ruby version's hand-rolled `Runner`/`Orchestrator`/`needs`-predicate framework.
+the Ruby version's hand-rolled `Runner`/`Orchestrator`/`needs`-predicate framework. See
+`docs/MIGRATION_PLAYBOOK.md` for the reusable, repo-agnostic version of this migration's concept map
+and lessons learned - written for reuse on a future migration of a different Ruby tool.
 
 ## Domain Nomenclature
 
@@ -192,6 +194,14 @@ only final, already-rendered strings ever cross the boundary. `GenerateArgocd`'s
 contrast, is built fresh with no numeric fields at all, so it's rendered directly in workflow code
 with no such risk - see the comments in `internal/activities/activities.go` and
 `internal/workflows/generateargocd.go`.
+
+**Three of the five workflows fan out to per-unit child workflows** (`SyncWorkloads` → per-app
+`SyncAppWorkflow`, `SetupKeycloak` → per-env `SetupKeycloakEnvWorkflow`, `Sync1Password` → per-env
+`Sync1PasswordEnvWorkflow`), started concurrently via `workflow.ExecuteChildWorkflow` and awaited
+afterward. `GenerateArgocd` and `RenderTalos` deliberately stay as single linear workflows - they
+have no natural per-unit I/O boundary worth isolating. See `docs/GO_NOTES.md`'s "Decomposing the
+monolith" section for the full reasoning (this was originally motivated by a real PR review comment
+about `SyncWorkloads` risking Temporal's payload-size limit on a large enough source tree).
 
 ## Agent Guidelines & Operation
 
