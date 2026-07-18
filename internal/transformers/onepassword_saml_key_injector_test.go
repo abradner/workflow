@@ -56,6 +56,32 @@ func TestOnePasswordSamlKeyInjector_InjectsFreshPublicKey(t *testing.T) {
 	assert.Contains(t, logger.infos[0], "Injected fresh")
 }
 
+// TestOnePasswordSamlKeyInjector_PreservesLargeNumericFieldsWhileInjecting is
+// the regression test for the unmarshal/marshal round trip in
+// injectPublicKey: without json.Decoder.UseNumber, a large integer sharing a
+// JSON object with "mp.jwt.verify.publickey" would decode to float64 and
+// come back out rounded/in scientific notation, corrupting a field this
+// transformer was never meant to touch.
+func TestOnePasswordSamlKeyInjector_PreservesLargeNumericFieldsWhileInjecting(t *testing.T) {
+	mapper := transformers.OnePasswordSamlKeyInjector{
+		SourceEnv:   "dev4",
+		TargetEnv:   "dev5",
+		KCPublicKey: "fresh_key",
+	}
+
+	result := mapper.Call([]domain.ExtractedSecret{
+		{Name: "dev4/pmn-ui-api-config", String: strptr(`{"mp.jwt.verify.publickey":"stale","clientId":123456789012345678}`)},
+	})
+
+	require.Len(t, result, 1)
+	require.NotNil(t, result[0].String)
+	assert.Contains(t, *result[0].String, `"clientId":123456789012345678`, "large integer must survive the round trip exactly, not as float64 rounding/scientific notation")
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*result[0].String), &payload))
+	assert.Equal(t, "fresh_key", payload["mp.jwt.verify.publickey"])
+}
+
 func TestOnePasswordSamlKeyInjector_LeavesNonMatchingJSONAlone(t *testing.T) {
 	mapper := transformers.OnePasswordSamlKeyInjector{SourceEnv: "dev4", TargetEnv: "dev5", KCPublicKey: "fresh_key"}
 

@@ -103,6 +103,12 @@ func sanitizeSectionID(awsName string) string {
 // JSON object.
 func parseFlatJSONObject(s string) (keys []string, values map[string]any, ok bool) {
 	dec := json.NewDecoder(strings.NewReader(s))
+	// Without this, a JSON number decodes to float64, which can silently
+	// round or scientific-notation-ify a large integer (an account/client
+	// ID, say) before stringify ever sees it. json.Number preserves the
+	// original digit string exactly, and fmt.Sprint renders it verbatim
+	// since it implements fmt.Stringer.
+	dec.UseNumber()
 
 	tok, err := dec.Token()
 	if err != nil {

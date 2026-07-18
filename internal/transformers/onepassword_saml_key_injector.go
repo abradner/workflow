@@ -65,7 +65,15 @@ func (t OnePasswordSamlKeyInjector) remapString(s *string) *string {
 // (not JSON, not an object, no such key) is left untouched - ok is false.
 func (t OnePasswordSamlKeyInjector) injectPublicKey(mappedString string) (string, bool) {
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(mappedString), &payload); err != nil {
+	// Decoded with UseNumber rather than plain json.Unmarshal: without it,
+	// any other numeric field in this payload (an account/client ID, say)
+	// decodes to float64 and comes back out of json.Marshal below rounded
+	// or in scientific notation - corrupting a field this transformer was
+	// never even meant to touch, just because it happened to share a JSON
+	// object with the public key.
+	dec := json.NewDecoder(strings.NewReader(mappedString))
+	dec.UseNumber()
+	if err := dec.Decode(&payload); err != nil {
 		return "", false
 	}
 	if _, hasKey := payload["mp.jwt.verify.publickey"]; !hasKey {

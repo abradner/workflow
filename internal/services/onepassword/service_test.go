@@ -80,6 +80,27 @@ func TestIngestVaultItem_NullJSONFieldBecomesEmptyString(t *testing.T) {
 	assert.Equal(t, concealedField("wtf-config", "foo", ""), fields[0])
 }
 
+// TestIngestVaultItem_PreservesLargeNumericFields is the regression test for
+// parseFlatJSONObject decoding JSON numbers into float64 by default - which
+// silently rounds or scientific-notation-ifies an integer bigger than 2^53
+// (an account/client ID, say) before it ever reaches stringify. UseNumber
+// keeps the original digit string intact all the way through.
+func TestIngestVaultItem_PreservesLargeNumericFields(t *testing.T) {
+	client := &fakeOpClient{}
+	svc := onepassword.New("wtf", client)
+
+	secrets := []domain.ExtractedSecret{
+		{Name: "dev3/wtf/config", String: strptr(`{"clientId":123456789012345678}`)},
+	}
+
+	_, err := svc.IngestVaultItem(context.Background(), "dev4", secrets)
+	require.NoError(t, err)
+
+	fields := client.gotItem["fields"].([]map[string]any)
+	require.Len(t, fields, 1)
+	assert.Equal(t, concealedField("wtf-config", "clientId", "123456789012345678"), fields[0])
+}
+
 func TestIngestVaultItem_EmptySecretsMarshalFieldsAsEmptyArray(t *testing.T) {
 	client := &fakeOpClient{}
 	svc := onepassword.New("wtf", client)
