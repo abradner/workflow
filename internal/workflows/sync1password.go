@@ -86,14 +86,20 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 		return result, nil
 	}
 
+	// IngestVaultItem shells out to `op item create`, which has no
+	// idempotency key or upsert path - every call makes a brand new item.
+	// Run it without the default retry policy so a transient failure after
+	// a successful remote create can't get retried into a duplicate item.
+	ingestCtx := workflow.WithActivityOptions(ctx, nonRetryingActivityOptions())
+
 	for _, env := range cfg.Environments {
 		logger.Info("Pushing 1Password vault item", "item", fmt.Sprintf("k8s-%s-%s", cfg.ProjectName, env))
 
-		err := workflow.ExecuteActivity(ctx, a.IngestVaultItem, activities.IngestVaultItemInput{
+		err := workflow.ExecuteActivity(ingestCtx, a.IngestVaultItem, activities.IngestVaultItemInput{
 			ProjectName: cfg.ProjectName,
 			Env:         env,
 			Secrets:     mappedByEnv[env],
-		}).Get(ctx, nil)
+		}).Get(ingestCtx, nil)
 		if err != nil {
 			return Sync1PasswordResult{}, fmt.Errorf("ingesting vault item for %s: %w", env, err)
 		}

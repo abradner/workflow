@@ -26,6 +26,18 @@ func defaultActivityOptions() workflow.ActivityOptions {
 	}
 }
 
+// nonRetryingActivityOptions is for activities that create-but-don't-upsert
+// a remote resource (e.g. a 1Password item) - the original Ruby tool never
+// retried at all, and retrying a create-only call here risks producing a
+// duplicate if the create succeeded remotely but the activity failed to
+// report completion (a timeout, a worker crash) before Temporal recorded it.
+// MaximumAttempts: 1 is the SDK's documented way to disable retries.
+func nonRetryingActivityOptions() workflow.ActivityOptions {
+	opts := defaultActivityOptions()
+	opts.RetryPolicy = &temporal.RetryPolicy{MaximumAttempts: 1}
+	return opts
+}
+
 // runActivity calls activityFn and unmarshals its result as T, instead of
 // every call site declaring `var out T` and a separate Future.Get.
 func runActivity[T any](ctx workflow.Context, activityFn any, args ...any) (T, error) {

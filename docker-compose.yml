@@ -56,16 +56,22 @@ services:
       - temporal
     env_file:
       - .env
+    environment:
+      # SOURCE_DIR/DEST_DIR/CLUSTER_APPS_DIR/TALOS_TEMPLATE_DIR in .env are
+      # host paths (Compose resolves a relative one against this file, same
+      # as .env.example's own examples) - but a bind mount's container-side
+      # target must always be absolute, so the container sees these fixed
+      # paths instead, overriding whatever .env set via env_file above.
+      - SOURCE_DIR=/data/source
+      - DEST_DIR=/data/dest
+      - CLUSTER_APPS_DIR=/data/cluster-apps
+      - TALOS_TEMPLATE_DIR=/data/talos-templates
     command: ["worker", "--temporal=temporal:7233", "--verbose"]
     volumes:
-      # SOURCE_DIR/DEST_DIR/CLUSTER_APPS_DIR/TALOS_TEMPLATE_DIR in .env are
-      # host paths the worker reads/writes directly - mount them into the
-      # container at the SAME paths so its view of the filesystem matches
-      # what .env describes. Adjust these to match your own .env.
-      - ${SOURCE_DIR}:${SOURCE_DIR}
-      - ${DEST_DIR}:${DEST_DIR}
-      - ${CLUSTER_APPS_DIR}:${CLUSTER_APPS_DIR}
-      - ${TALOS_TEMPLATE_DIR}:${TALOS_TEMPLATE_DIR}
+      - ${SOURCE_DIR}:/data/source
+      - ${DEST_DIR}:/data/dest
+      - ${CLUSTER_APPS_DIR}:/data/cluster-apps
+      - ${TALOS_TEMPLATE_DIR}:/data/talos-templates
 
 volumes:
   postgresql-data:

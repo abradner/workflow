@@ -2,6 +2,7 @@ package workflows_test
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -87,4 +88,29 @@ func TestSync1PasswordWorkflow_DryRunSkipsIngestion(t *testing.T) {
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
+}
+
+// TestSync1PasswordWorkflow_IngestFailureIsNotRetried is the regression test
+// for the "op item create isn't idempotent" fix: IngestVaultItem must run
+// with retries disabled, unlike every other activity in this workflow, so a
+// failure never risks creating a duplicate 1Password item behind the scenes.
+func TestSync1PasswordWorkflow_IngestFailureIsNotRetried(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	var a *activities.Activities
+
+	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+
+	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
+		Return(activities.FetchSamlCredentialsResult{Credentials: nil}, nil)
+	env.OnActivity(a.ExtractAWSSecrets, mock.Anything, mock.Anything).
+		Return(activities.ExtractAWSSecretsResult{Secrets: []domain.ExtractedSecret{{Name: "dev4/x", String: strptr("y")}}}, nil)
+	env.OnActivity(a.IngestVaultItem, mock.Anything, mock.Anything).
+		Return(errors.New("op item create: some transient failure"))
+
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{Config: cfg, DryRun: false})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+	env.AssertActivityNumberOfCalls(t, "IngestVaultItem", 1)
 }
