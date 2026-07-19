@@ -17,7 +17,9 @@ import (
 type Config struct {
 	// SourceDir is the immutable read-only clone.
 	SourceDir string `env:"SOURCE_DIR,required"`
-	// DestDir is the GitOps repository for workloads.
+	// DestDir is a local clone of the workloads repo (RepoURL) that sync
+	// writes app overlays into - a different repo from the one
+	// ClusterAppsDir lives in.
 	DestDir string `env:"DEST_DIR,required"`
 	// ClusterAppsDir is where the ArgoCD App-of-Apps manifests go.
 	ClusterAppsDir string `env:"CLUSTER_APPS_DIR,required"`
@@ -34,7 +36,11 @@ type Config struct {
 	AppPattern  string `env:"APP_PATTERN,required"`
 	ProjectName string `env:"PROJECT_NAME,required"`
 	TLD         string `env:"TLD,required"`
-	RepoURL     string `env:"REPO_URL,required"`
+	// RepoURL is the git remote for DestDir: what sync commits into, and
+	// what the generated ArgoCD ApplicationSet's source.repoURL points
+	// ArgoCD at (see argocdApplicationSetManifest) - not the GitOps repo
+	// ClusterAppsDir lives in.
+	RepoURL string `env:"REPO_URL,required"`
 
 	// Private container registry.
 	RegistryHostname string `env:"REGISTRY_HOSTNAME,required"`

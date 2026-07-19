@@ -210,6 +210,16 @@ contrast, is built fresh with no numeric fields at all, so it's rendered directl
 with no such risk - see the comments in `internal/activities/activities.go` and
 `internal/workflows/generateargocd.go`.
 
+**`GenerateArgocd` writes one `ApplicationSet`, not one `Application` file per app × environment**:
+this changed because the target GitOps repo (`athena-gitops`) moved `cluster/apps/`'s `pmn` project
+from individually-committed `Application` manifests to a single `ApplicationSet` with a matrix
+generator (env list × service list) - continuing to write per-app-per-env files would fight that
+ApplicationSet for ownership of the same Application names. The whole file is regenerated from
+`Config` + `DiscoverApps` on every run, same as everything else this tool outputs - see the doc
+comment on `GenerateArgocdWorkflow` for the trade-off that implies (manual edits to the
+ApplicationSet's boilerplate, made directly in the GitOps repo, don't survive the next run unless
+mirrored back into this Go template).
+
 **Three of the five workflows fan out to per-unit child workflows** (`SyncWorkloads` → per-app
 `SyncAppWorkflow`, `SetupKeycloak` → per-env `SetupKeycloakEnvWorkflow`, `Sync1Password` → per-env
 `Sync1PasswordEnvWorkflow`), started concurrently via `workflow.ExecuteChildWorkflow` and awaited

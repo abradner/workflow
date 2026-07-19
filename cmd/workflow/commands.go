@@ -22,8 +22,8 @@ func newSyncCmd(opts *globalOptions) *cobra.Command {
 func newSetupArgoCmd(opts *globalOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup-argo",
-		Short: "Generate ArgoCD Application manifests for all apps",
-		Long:  "Generates one ArgoCD Application manifest per app x environment, mapped to its overlay path.",
+		Short: "Generate the ArgoCD ApplicationSet covering all apps",
+		Long:  "Generates a single ArgoCD ApplicationSet with a matrix generator (envs x apps), expanding into one Application per app x environment mapped to its overlay path.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runWorkflow(cmd.Context(), opts, workflows.GenerateArgocdWorkflow, workflows.GenerateArgocdInput{DryRun: opts.DryRun})
