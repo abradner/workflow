@@ -128,6 +128,17 @@ version's `config/config.rb`. In embedded mode the worker and the CLI are the sa
 that's just the current directory; in external mode it's wherever `workflow worker` runs (e.g. the
 docker-compose worker service, via `env_file: .env`).
 
+## Documentation
+
+This README is the front door. Deeper material lives in [docs/](docs/README.md):
+
+| Document | For |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | What the system is, what it talks to, and the design rules behind its shape |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Running it, and diagnosing a run that went wrong |
+| [docs/modules/](docs/modules/README.md) | Package-by-package technical reference |
+| [docs/GO_NOTES.md](docs/GO_NOTES.md) | The Go and Temporal concepts this codebase leans on |
+
 ## Testing
 
 ```bash
