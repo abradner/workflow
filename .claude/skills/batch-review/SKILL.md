@@ -391,7 +391,7 @@ What that batch actually confirmed, as distinct from what is still inherited:
 - **`gh stack link` adopts existing PRs safely.** Used to convert a
   hand-managed stack mid-flight; branch SHAs were untouched, bases survived,
   and review context on all three PRs was preserved.
-- **Linking a followup into the stack works** (`gh stack link <n> <branch>`),
+- **Linking a followup into the stack works** (`gh stack link <stack-number> <branch-or-pr>`),
   and the squash train merged it last without incident.
 - **The platform merge gate is real**: `gh pr merge` refuses stacked PRs, so
   the operator gate stops being policy and becomes mechanism.
