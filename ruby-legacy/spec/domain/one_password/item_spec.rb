@@ -26,6 +26,7 @@ RSpec.describe Domain::OnePassword::Item do
       expect(item.reference_id).to eq('blank-item')
       expect(item.sections).to be_empty
       expect(item.fields).to be_empty
+      expect(item.hydrated_field_ids).to be_empty
       expect(item.as_json[:category]).to eq('SECURE_NOTE')
     end
 
@@ -36,6 +37,7 @@ RSpec.describe Domain::OnePassword::Item do
       expect(item.reference_id).to eq('12345')
       expect(item.sections.size).to eq(1)
       expect(item.fields.size).to eq(2)
+      expect(item.hydrated_field_ids).to match_array(%w[f-1 f-old])
     end
   end
 
@@ -67,6 +69,22 @@ RSpec.describe Domain::OnePassword::Item do
           'type' => 'CONCEALED'
         )
       end
+    end
+  end
+
+  describe '#hydrated_field_ids' do
+    it 'does not include IDs of fields added after construction via upsert_field' do
+      item = described_class.new(title: 'hydrated', existing_item_json: existing_json)
+      item.upsert_field(section_id: 'sec-new', label: 'api_key', value: 'new_val')
+
+      new_field = item.fields.find { |f| f['label'] == 'api_key' }
+      expect(item.hydrated_field_ids).to match_array(%w[f-1 f-old])
+      expect(item.hydrated_field_ids).not_to include(new_field['id'])
+    end
+
+    it 'is frozen and immutable after construction' do
+      item = described_class.new(title: 'hydrated', existing_item_json: existing_json)
+      expect { item.hydrated_field_ids << 'injected' }.to raise_error(FrozenError)
     end
   end
 end

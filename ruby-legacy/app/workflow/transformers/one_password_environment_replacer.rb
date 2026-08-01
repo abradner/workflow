@@ -50,11 +50,10 @@ module Workflow
       # the 1Password CLI receives two fields with the same label in the same section, causing ambiguous field
       # resolution errors and potentially silent data loss during `op item edit`.
       #
-      # How: Relies on array ordering. The hydrator inserts authentic 1P fields (carrying real tracked IDs) at
-      # the front of `domain_item.fields`. The mapper appends newly generated fields to the back. When we iterate,
-      # authentic fields populate the `deduplicated` hash first. When a collision is detected from a later
-      # (mapper-generated) field, we overwrite the value/type on the existing entry, preserving the authentic 1P ID
-      # so that `op item edit` can resolve the field unambiguously.
+      # How: On collision, uses `domain_item.hydrated_field_ids` to identify which field originated from the
+      # live 1Password vault. The vault-native field's identity (ID) is always preserved; the colliding field's
+      # value is merged into it. This is order-independent — it does not matter which field appears first in the
+      # array. If neither field is vault-native (both generated locally), the last-seen value wins.
       def deduplicate_fields!(domain_item)
         deduplicated = {}
         
@@ -64,15 +63,25 @@ module Workflow
           
           if deduplicated.key?(key)
             existing = deduplicated[key]
+            existing_is_hydrated = existing['id'] && domain_item.hydrated_field_ids.include?(existing['id'])
+            current_is_hydrated = f['id'] && domain_item.hydrated_field_ids.include?(f['id'])
             
-            # Merge the newer value into the existing field (which was hydrated first natively from 1Password upstream)
-            # This perfectly preserves the upstream ID while injecting the translated value.
-            existing['value'] = f['value']
-            existing['type'] = f['type']
-            
-            @logger.debug "  => Deduplicating field: merged new value into existing tracked 1P field ID '#{existing['id'] || 'new'}' for #{key}"
-            
-            domain_item.touched_field_ids << existing['id'] if existing['id']
+            if existing_is_hydrated || !current_is_hydrated
+              # Keep the existing (vault-native) field's identity, take the colliding field's value
+              existing['value'] = f['value']
+              existing['type'] = f['type']
+              domain_item.touched_field_ids << existing['id'] if existing['id']
+              
+              @logger.debug "  => Deduplicating field: merged new value into vault-tracked field ID '#{existing['id']}' for #{key}"
+            else
+              # Current field is vault-native but existing isn't — swap: keep current's identity with existing's value
+              f['value'] = existing['value']
+              f['type'] = existing['type']
+              domain_item.touched_field_ids << f['id']
+              deduplicated[key] = f
+              
+              @logger.debug "  => Deduplicating field: promoted vault-tracked field ID '#{f['id']}' for #{key}"
+            end
           else
             deduplicated[key] = f
           end

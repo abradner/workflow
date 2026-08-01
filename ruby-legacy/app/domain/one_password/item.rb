@@ -6,8 +6,12 @@ module Domain
   module OnePassword
     # Represents a 1Password Item (typically Secure Note or Login).
     # Maintains internal ID mappings for safe, idempotent updates against the 1P CLI.
+    #
+    # Design contract: `hydrated_field_ids` records IDs that originated from a live 1Password vault
+    # during construction. Consumers needing to distinguish vault-native fields from locally generated
+    # ones (e.g. for deduplication) should use this set rather than relying on array ordering.
     class Item
-      attr_reader :id, :title, :category, :touched_field_ids, :vault_name
+      attr_reader :id, :title, :category, :touched_field_ids, :hydrated_field_ids, :vault_name
       attr_accessor :sections, :fields
 
       def initialize(title:, category: 'SECURE_NOTE', vault_name: nil, existing_item_json: nil)
@@ -20,10 +24,12 @@ module Domain
           @id = existing_item_json['id']
           @sections = existing_item_json['sections'] || []
           @fields = existing_item_json['fields'] || []
+          @hydrated_field_ids = @fields.filter_map { |f| f['id'] }.freeze
         else
           @id = nil
           @sections = []
           @fields = []
+          @hydrated_field_ids = [].freeze
         end
       end
 

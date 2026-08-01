@@ -63,4 +63,33 @@ RSpec.describe Workflow::Transformers::OnePasswordEnvironmentReplacer do
     expect(field['id']).to eq('f-1')
     expect(field['value']).to eq('db.NEW-dev5.com')
   end
+
+  it 'preserves vault-native field ID regardless of array ordering (order-independent)' do
+    replacer = described_class.new(source_env: 'dev4', target_env: 'dev5', logger: logger)
+    
+    existing_json = {
+      'id' => '12345',
+      'title' => 'existing-title',
+      'sections' => [{ 'id' => 'pmn-dev5-config', 'label' => 'pmn-dev5-config' }],
+      'fields' => [
+        { 'id' => 'f-vault', 'section' => { 'id' => 'pmn-dev5-config' }, 'label' => 'conn', 'value' => 'db.dev5.com', 'type' => 'CONCEALED' }
+      ]
+    }
+    
+    domain_item = Domain::OnePassword::Item.new(title: 'k8s-dev5', existing_item_json: existing_json)
+    
+    # Deliberately insert the mapper-generated field at the FRONT of the array
+    # so the vault-native field is at the back — opposite of normal pipeline ordering
+    mapper_field = { 'id' => SecureRandom.hex(16), 'section' => { 'id' => 'pmn-dev4-config' }, 'label' => 'conn', 'value' => 'db.NEW-dev4.com', 'type' => 'CONCEALED' }
+    domain_item.fields.unshift(mapper_field)
+    
+    replacer.call(domain_item)
+
+    expect(domain_item.fields.size).to eq(1)
+
+    field = domain_item.fields.first
+    # Even though the mapper-generated field was first, the vault-native ID is preserved
+    expect(field['id']).to eq('f-vault')
+    expect(field['value']).to eq('db.NEW-dev5.com')
+  end
 end
