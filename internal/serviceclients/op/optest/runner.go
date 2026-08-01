@@ -20,6 +20,30 @@
 // The fake is only as good as the observations behind it, and those have a
 // shelf life. Re-run the transcript in OP_CLI_NOTES.md when the CLI is
 // upgraded and correct anything here that has drifted.
+//
+// # Scope: what this deliberately is not
+//
+// This is not a reimplementation of `op`, and it is not trying to become one.
+// It models the slice of the CLI contract that *this client can get wrong* --
+// the argument vectors it builds, and the behaviours that decide whether those
+// vectors work. Everything else is out of scope on purpose:
+//
+//   - Flags this tool does not pass are not modelled, and are rejected as
+//     unknown rather than accepted and ignored. That is the honest answer: an
+//     accepted-but-ignored flag silently lies about what is supported. Adding a
+//     flag to flagSpec and modelling its behaviour are one change, not two.
+//   - Inputs this client cannot construct are not validated. Item categories,
+//     for instance, come from a constant in the client's own template map, so
+//     an invalid one is unreachable -- guarding it would mean maintaining an
+//     allowlist against 1Password's category list forever, to protect a path
+//     that cannot be taken.
+//   - Whether stdin reaches `op` at all is invisible at the argv level and so
+//     cannot be modelled here (see above).
+//
+// The test to apply when extending this: *could our client actually produce
+// this, and would the real CLI reject it?* If either answer is no, the fidelity
+// is not worth the maintenance. Fidelity here is a means to catching our own
+// bugs, not an end in itself.
 package optest
 
 import (
@@ -255,7 +279,6 @@ var flagSpec = map[string]map[string]bool{ // subcommand -> flag -> takes a valu
 	},
 	"get": {
 		"--vault": true, "--fields": true, "--format": true,
-		"--reveal": false, "--include-archive": false,
 	},
 }
 
