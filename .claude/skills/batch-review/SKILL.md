@@ -86,8 +86,14 @@ all from `AGENTS.md` and `docs/ARCHITECTURE.md`:
 related to the project page via the `Project` relation. Set `Impact` and
 `Effort level`. This is where deferred findings go instead of another round.
 
-**Merge style** — interstitials land as plain merge commits (`gh pr merge
---merge`); the followup squash-merges.
+**Merge style** — depends on the flavour, and the difference is the whole
+reason Phase 1 is an operator choice:
+
+- **Manual**: interstitials land as plain merge commits (`gh pr merge --merge`),
+  each wrapping exactly one reviewed commit. The followup squash-merges.
+- **Stacked**: the platform's "Squash and merge stack" lands one squash commit
+  per PR, bottom-up, with per-PR attribution. Per-PR merge commits are not
+  available — that is the trade accepted at Phase 1.
 
 ## Phase 1 — Flavour probe
 
@@ -376,11 +382,23 @@ Write-only feedback, the self-review, the round cap, the showstopper bar and
 the Phase 7 operator gate are all identical. Only the branch and merge plumbing
 differs.
 
-**Status here.** This repo probes **stacked available** (2026-08) but has not
-yet run a stacked batch — every observation below is inherited from a sibling
-repo's empirical probe of the beta. **Re-verify the load-bearing ones on the
-first stacked batch here and update this section**, especially anything marked
-UNVERIFIED. Keep this branch of the workflow current even while running manual:
+**Status here.** This repo probes **stacked available** (2026-08) and has now
+run one stacked batch: `op-contract-docs` (#5–#7 plus followup #9), which
+merged cleanly via "Squash and merge stack".
+
+What that batch actually confirmed, as distinct from what is still inherited:
+
+- **`gh stack link` adopts existing PRs safely.** Used to convert a
+  hand-managed stack mid-flight; branch SHAs were untouched, bases survived,
+  and review context on all three PRs was preserved.
+- **Linking a followup into the stack works** (`gh stack link <n> <branch>`),
+  and the squash train merged it last without incident.
+- **The platform merge gate is real**: `gh pr merge` refuses stacked PRs, so
+  the operator gate stops being policy and becomes mechanism.
+
+Everything else below is still inherited from a sibling repo's probe and
+**unconfirmed here** — in particular `gh stack rebase`/`sync` behaviour and the
+`unstack` degrade path, none of which that batch had cause to exercise. Keep this branch of the workflow current even while running manual:
 `gh stack` is a preview feature and could be withdrawn, in which case the manual
 flavour is not a fallback but the only path.
 
@@ -411,12 +429,12 @@ flavour is not a fallback but the only path.
   child.
 - **Followup (Phase 6).** Open it as an ordinary draft targeting `main`,
   *outside* the stack object, and run the aggregate `@codex review` as written.
-  After harvesting: retarget to the cap, link it into the stack object, then
-  mark ready. The documented mechanism is `gh stack link <stack-number>
-  <branch-or-pr>...` (args bottom-to-top). Its behaviour on a live batch, and
-  what the stack merge button then does with a linked followup, are
-  **UNVERIFIED**. If linking misbehaves, don't fight it — leave the followup an
-  ordinary PR on the cap and finish with the manual Phase 7 choreography.
+  After harvesting: retarget to the cap, link it into the stack object with
+  `gh stack link <stack-number> <branch-or-pr>` (args bottom-to-top), then mark
+  ready. **Confirmed on batch `op-contract-docs`**: the link succeeded against
+  a live batch and the squash train merged the followup last, in order. If it
+  ever does misbehave, don't fight it — leave the followup an ordinary PR on
+  the cap and finish with the manual Phase 7 choreography.
 - **Merge (Phase 7).** The operator gate becomes **platform-enforced**:
   `gh pr merge` refuses stacked PRs and the merge control is the web UI's stack
   button only, so the agent's merge phase reduces to verify-ready, report, stop.
