@@ -42,6 +42,13 @@ type Config struct {
 	// ClusterAppsDir lives in.
 	RepoURL string `env:"REPO_URL,required"`
 
+	// OPVaultName is the 1Password vault sync-1p writes its per-environment
+	// Secure Notes into. Deliberately NOT `required`: only sync-1p needs it,
+	// and making it mandatory here would fail `sync`, `setup-argo` and
+	// `render-talos`, none of which address a vault by name. It is validated
+	// at the point of use instead - see activities.SyncEnvSecrets.
+	OPVaultName string `env:"OP_VAULT_NAME"`
+
 	// Private container registry.
 	RegistryHostname string `env:"REGISTRY_HOSTNAME,required"`
 	Registry1PItemID string `env:"REGISTRY_1P_ITEM_ID,required"`

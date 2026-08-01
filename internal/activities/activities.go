@@ -276,6 +276,7 @@ func (a *Activities) FetchSamlCredentials(ctx context.Context, in FetchSamlCrede
 
 type SyncEnvSecretsInput struct {
 	ProjectName string
+	VaultName   string
 	SourceEnv   string
 	TargetEnv   string
 	KCPublicKey string // "" means no fresh Keycloak key to inject
@@ -312,6 +313,14 @@ type SyncEnvSecretsResult struct {
 // usual automatic retry either - an accepted trade for keeping the secrets
 // out of Temporal's history. Rerun the command if that happens.
 func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput) (SyncEnvSecretsResult, error) {
+	// Checked before any AWS call: failing here costs nothing, whereas failing
+	// after extraction has already pulled every secret for the environment.
+	// Not enforced in config.Load because the other four workflows have no
+	// vault to name - see the OPVaultName field comment.
+	if !in.DryRun && in.VaultName == "" {
+		return SyncEnvSecretsResult{}, fmt.Errorf("OP_VAULT_NAME is not set: sync-1p needs a target vault, or items land in the personal vault")
+	}
+
 	secrets, err := a.AWSSecrets.ExtractSecrets(ctx, in.SourceEnv)
 	if err != nil {
 		return SyncEnvSecretsResult{}, fmt.Errorf("extracting AWS secrets: %w", err)
@@ -329,7 +338,7 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 		return SyncEnvSecretsResult{SecretsExtracted: len(secrets)}, nil
 	}
 
-	svc := onepassword.New(in.ProjectName, a.OnePassword)
+	svc := onepassword.New(in.ProjectName, in.VaultName, a.OnePassword)
 	if _, err := svc.IngestVaultItem(ctx, in.TargetEnv, mapped); err != nil {
 		return SyncEnvSecretsResult{}, fmt.Errorf("ingesting vault item: %w", err)
 	}

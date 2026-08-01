@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
@@ -25,6 +26,7 @@ func TestSync1PasswordWorkflow_FansOutOneChildPerEnvironment(t *testing.T) {
 		Environments: []string{"dev4", "dev5"},
 		ProjectName:  "pmn",
 		TLD:          "f-ck.xyz",
+		OPVaultName:  "Tooling",
 	}
 
 	mockLoadConfig(env, a, cfg)
@@ -72,7 +74,7 @@ func TestSync1PasswordWorkflow_DryRunStillSyncsPerEnvironment(t *testing.T) {
 	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	var a *activities.Activities
 
-	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", OPVaultName: "Tooling"}
 	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
@@ -108,7 +110,7 @@ func TestSync1PasswordWorkflow_SyncFailureIsNotRetried(t *testing.T) {
 	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
 	var a *activities.Activities
 
-	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", OPVaultName: "Tooling"}
 	mockLoadConfig(env, a, cfg)
 
 	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
@@ -121,4 +123,43 @@ func TestSync1PasswordWorkflow_SyncFailureIsNotRetried(t *testing.T) {
 	require.True(t, env.IsWorkflowCompleted())
 	require.Error(t, env.GetWorkflowError())
 	env.AssertActivityNumberOfCalls(t, "SyncEnvSecrets", 1)
+}
+
+// An unset OP_VAULT_NAME fails before any child starts. Without the parent
+// guard this would surface as one identical error per environment, each after
+// its child had already fetched SAML credentials.
+func TestSync1PasswordWorkflow_RefusesToRunWithNoVault(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	a := &activities.Activities{}
+
+	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4", "dev5"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	mockLoadConfig(env, a, cfg)
+
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+	assert.Contains(t, env.GetWorkflowError().Error(), "OP_VAULT_NAME")
+	env.AssertNotCalled(t, "SyncEnvSecrets", mock.Anything, mock.Anything)
+}
+
+// Dry-run plans without a vault: nothing is written, so nothing needs one.
+func TestSync1PasswordWorkflow_DryRunDoesNotRequireAVault(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
+	a := &activities.Activities{}
+
+	cfg := config.Config{SourceEnv: "dev4", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz"}
+	mockLoadConfig(env, a, cfg)
+	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
+		Return(activities.FetchSamlCredentialsResult{}, nil)
+	env.OnActivity(a.SyncEnvSecrets, mock.Anything, mock.Anything).
+		Return(activities.SyncEnvSecretsResult{SecretsExtracted: 3}, nil)
+
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: true})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
 }

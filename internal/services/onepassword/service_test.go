@@ -13,10 +13,12 @@ import (
 )
 
 type fakeOpClient struct {
-	gotItem map[string]any
+	gotVault string
+	gotItem  map[string]any
 }
 
-func (f *fakeOpClient) CreateItem(_ context.Context, item map[string]any) (string, error) {
+func (f *fakeOpClient) CreateItem(_ context.Context, item map[string]any, vault string) (string, error) {
+	f.gotVault = vault
 	f.gotItem = item
 	return "ok", nil
 }
@@ -25,7 +27,7 @@ func strptr(s string) *string { return &s }
 
 func TestIngestVaultItem_BuildsSectionsAndFieldsFromExtractedSecrets(t *testing.T) {
 	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", client)
+	svc := onepassword.New("wtf", "Tooling", client)
 
 	secrets := []domain.ExtractedSecret{
 		{Name: "dev3/wtf/config", String: strptr(`{"foo":"bar","baz":"qux"}`)},
@@ -66,7 +68,7 @@ func TestIngestVaultItem_BuildsSectionsAndFieldsFromExtractedSecrets(t *testing.
 // string the original Ruby tool's `value.to_s` produced for the same input.
 func TestIngestVaultItem_NullJSONFieldBecomesEmptyString(t *testing.T) {
 	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", client)
+	svc := onepassword.New("wtf", "Tooling", client)
 
 	secrets := []domain.ExtractedSecret{
 		{Name: "dev3/wtf/config", String: strptr(`{"foo":null}`)},
@@ -87,7 +89,7 @@ func TestIngestVaultItem_NullJSONFieldBecomesEmptyString(t *testing.T) {
 // keeps the original digit string intact all the way through.
 func TestIngestVaultItem_PreservesLargeNumericFields(t *testing.T) {
 	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", client)
+	svc := onepassword.New("wtf", "Tooling", client)
 
 	secrets := []domain.ExtractedSecret{
 		{Name: "dev3/wtf/config", String: strptr(`{"clientId":123456789012345678}`)},
@@ -103,7 +105,7 @@ func TestIngestVaultItem_PreservesLargeNumericFields(t *testing.T) {
 
 func TestIngestVaultItem_EmptySecretsMarshalFieldsAsEmptyArray(t *testing.T) {
 	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", client)
+	svc := onepassword.New("wtf", "Tooling", client)
 
 	_, err := svc.IngestVaultItem(context.Background(), "dev4", nil)
 	require.NoError(t, err)

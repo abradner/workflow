@@ -13,18 +13,19 @@ import (
 
 // Client is the subset of the 1Password CLI wrapper this service needs.
 type Client interface {
-	CreateItem(ctx context.Context, item map[string]any) (string, error)
+	CreateItem(ctx context.Context, item map[string]any, vault string) (string, error)
 }
 
 // Service builds and creates 1Password vault items from extracted secrets.
 type Service struct {
 	client      Client
 	projectName string
+	vaultName   string
 }
 
-// New builds a Service for the given project.
-func New(projectName string, client Client) *Service {
-	return &Service{client: client, projectName: projectName}
+// New builds a Service for the given project, writing into vaultName.
+func New(projectName, vaultName string, client Client) *Service {
+	return &Service{client: client, projectName: projectName, vaultName: vaultName}
 }
 
 // IngestVaultItem builds a single Secure Note titled "k8s-<project>-<env>"
@@ -62,7 +63,7 @@ func (s *Service) IngestVaultItem(ctx context.Context, env string, extractedSecr
 		"fields":   fields,
 	}
 
-	return s.client.CreateItem(ctx, opTemplate)
+	return s.client.CreateItem(ctx, opTemplate, s.vaultName)
 }
 
 func concealedField(sectionID, label, value string) map[string]any {

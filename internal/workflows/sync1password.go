@@ -57,6 +57,15 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 	}
 	cfg := cfgResult.Config
 
+	// Fail before fanning out, not once per child. The activity keeps its own
+	// guard as a backstop, but reaching it means every environment has already
+	// started and fetched SAML credentials before failing identically - N
+	// copies of one error, after N pointless round trips.
+	if !in.DryRun && cfg.OPVaultName == "" {
+		return Sync1PasswordResult{}, fmt.Errorf(
+			"OP_VAULT_NAME is not set: sync-1p needs a target vault, or items land in the operator's personal vault")
+	}
+
 	// Fan out: one child per environment, started before waiting on any of
 	// them so they run concurrently.
 	logger.Info("Fanning out one child workflow per environment", "environments", cfg.Environments)
@@ -64,6 +73,7 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 	for i, env := range cfg.Environments {
 		futures[i] = workflow.ExecuteChildWorkflow(ctx, Sync1PasswordEnvWorkflow, Sync1PasswordEnvInput{
 			ProjectName: cfg.ProjectName,
+			VaultName:   cfg.OPVaultName,
 			SourceEnv:   cfg.SourceEnv,
 			TargetEnv:   env,
 			TLD:         cfg.TLD,
@@ -98,6 +108,7 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 // work - the unit Sync1PasswordWorkflow fans out over.
 type Sync1PasswordEnvInput struct {
 	ProjectName string
+	VaultName   string
 	SourceEnv   string
 	TargetEnv   string
 	TLD         string
@@ -140,6 +151,7 @@ func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) (S
 	ingestCtx := workflow.WithActivityOptions(ctx, nonRetryingActivityOptions())
 	synced, err := runActivity[activities.SyncEnvSecretsResult](ingestCtx, a.SyncEnvSecrets, activities.SyncEnvSecretsInput{
 		ProjectName: in.ProjectName,
+		VaultName:   in.VaultName,
 		SourceEnv:   in.SourceEnv,
 		TargetEnv:   in.TargetEnv,
 		KCPublicKey: kcPublicKey,

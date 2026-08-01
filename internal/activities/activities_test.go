@@ -234,6 +234,7 @@ func TestSyncEnvSecrets_InjectsFreshKeycloakPublicKey(t *testing.T) {
 	a := newSyncSecretsActivities(runner)
 
 	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
+		VaultName:   "Tooling",
 		ProjectName: "pmn",
 		SourceEnv:   "dev3",
 		TargetEnv:   "dev4",
@@ -255,6 +256,7 @@ func TestSyncEnvSecrets_LeavesValueAloneWithNoFreshKey(t *testing.T) {
 	a := newSyncSecretsActivities(runner)
 
 	executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
+		VaultName:   "Tooling",
 		ProjectName: "pmn",
 		SourceEnv:   "dev3",
 		TargetEnv:   "dev5",
@@ -274,6 +276,7 @@ func TestSyncEnvSecrets_DryRunSkipsIngestion(t *testing.T) {
 	a := newSyncSecretsActivities(runner)
 
 	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
+		VaultName:   "Tooling",
 		ProjectName: "pmn",
 		SourceEnv:   "dev3",
 		TargetEnv:   "dev4",
