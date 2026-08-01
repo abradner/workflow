@@ -315,6 +315,12 @@ func parseArgs(sub string, args []string) (map[string]string, []string, error) {
 			}
 			flags[name] = "true"
 		case hasInline:
+			// `--vault=` is a missing argument, not an empty value. Letting it
+			// through as "" would read downstream as "not provided" and quietly
+			// fall back to a default the real CLI would never have reached.
+			if inline == "" {
+				return nil, nil, fmt.Errorf("flag needs an argument: %s", name)
+			}
 			flags[name] = inline
 		case i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") && args[i+1] != "-":
 			flags[name] = args[i+1]

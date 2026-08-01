@@ -219,3 +219,18 @@ func TestContractFake_RejectsUnmodelledTemplateFlag(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, stderr, "unknown flag: --template")
 }
+
+// `--vault=` is a missing argument, not an empty value: accepting it would read
+// downstream as "not provided" and fall back to a default the real CLI would
+// never have reached.
+func TestContractFake_RejectsEmptyInlineFlagValue(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--vault=", "-"},
+		[]byte(`{"title":"x","category":"SECURE_NOTE"}`))
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "flag needs an argument: --vault")
+	assert.Empty(t, runner.Items)
+}

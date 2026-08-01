@@ -57,6 +57,7 @@ Each takes a `*manifest.Workspace` and mutates it. Composable, order-sensitive.
 | `LegacyModernizer` | Ingress → HTTPRoute, ExternalSecret API upgrades, strips conflicting fields |
 | `ServiceAbstractionLinker` | Rewrites external hostnames in configMap literals to cluster-local DNS; generates `ExternalName` Services |
 | `PullSecretInjector` | Synthesises a registry pull-secret `ExternalSecret`, wires it into ServiceAccounts |
+| `OnePasswordSamlKeyInjector` | Injects a fresh Keycloak public key into JSON secret payloads carrying `mp.jwt.verify.publickey` — **the exception; see below** |
 
 **`OnePasswordSamlKeyInjector` is the exception in this package.** It lives here
 by neighbourhood, not by shape: it takes and returns `[]domain.ExtractedSecret`,
