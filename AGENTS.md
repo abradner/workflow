@@ -18,6 +18,13 @@ it from the code:
 | I need the Go or Temporal concept explained | [docs/GO_NOTES.md](docs/GO_NOTES.md) |
 | I'm touching anything that shells out to `op` | [docs/OP_CLI_NOTES.md](docs/OP_CLI_NOTES.md) — **read before changing** |
 
+Shipping a body of work as several PRs? Read
+[`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md)
+first — it is the repo's stacked-PR workflow, and its central rule is that
+review feedback is **write-only until the whole batch is synthesised**. If you
+are looking at an open PR whose description carries a `## Batch` block, do not
+push fixes to it.
+
 Two rules that are easy to violate without noticing, both explained in
 `docs/ARCHITECTURE.md`:
 
