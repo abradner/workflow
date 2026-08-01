@@ -2,7 +2,7 @@ package onepassword_test
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,116 +12,166 @@ import (
 	"github.com/abradner/workflow/internal/services/onepassword"
 )
 
+// fakeOpClient records what the service asked the CLI to do.
 type fakeOpClient struct {
-	gotVault string
-	gotItem  map[string]any
+	existing map[string]any
+	getErr   error
+
+	gotVault    string
+	created     map[string]any
+	editedID    string
+	editedItem  map[string]any
+	createCalls int
+	editCalls   int
+}
+
+func (f *fakeOpClient) GetItem(_ context.Context, _, vault string) (map[string]any, error) {
+	f.gotVault = vault
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.existing, nil
 }
 
 func (f *fakeOpClient) CreateItem(_ context.Context, item map[string]any, vault string) (string, error) {
-	f.gotVault = vault
-	f.gotItem = item
-	return "ok", nil
+	f.gotVault, f.created, f.createCalls = vault, item, f.createCalls+1
+	return "new-id", nil
 }
 
-func strptr(s string) *string { return &s }
-
-func TestIngestVaultItem_BuildsSectionsAndFieldsFromExtractedSecrets(t *testing.T) {
-	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", "Tooling", client)
-
-	secrets := []domain.ExtractedSecret{
-		{Name: "dev3/wtf/config", String: strptr(`{"foo":"bar","baz":"qux"}`)},
-		{Name: "dev3/wtf-ext/keystore", Binary: strptr("base64EncodedString")},
-		{Name: "dev3/wtf-raw/secret", String: strptr("raw_string_password")},
-	}
-
-	_, err := svc.IngestVaultItem(context.Background(), "dev4", secrets)
-	require.NoError(t, err)
-
-	require.NotNil(t, client.gotItem)
-	assert.Equal(t, "k8s-wtf-dev4", client.gotItem["title"])
-	assert.Equal(t, "SECURE_NOTE", client.gotItem["category"])
-
-	sections := client.gotItem["sections"].([]map[string]any)
-	assert.Equal(t, []map[string]any{
-		{"id": "wtf-config", "label": "wtf-config"},
-		{"id": "wtf-ext-keystore", "label": "wtf-ext-keystore"},
-		{"id": "wtf-raw-secret", "label": "wtf-raw-secret"},
-	}, sections)
-
-	fields := client.gotItem["fields"].([]map[string]any)
-	require.Len(t, fields, 4)
-
-	// JSON object fields are spread out in their original key order (not
-	// Go's randomized map order) - see parseFlatJSONObject.
-	assert.Equal(t, concealedField("wtf-config", "foo", "bar"), fields[0])
-	assert.Equal(t, concealedField("wtf-config", "baz", "qux"), fields[1])
-	// Binary data maps to a single "password" field.
-	assert.Equal(t, concealedField("wtf-ext-keystore", "password", "base64EncodedString"), fields[2])
-	// Raw non-JSON string maps to a single "password" field.
-	assert.Equal(t, concealedField("wtf-raw-secret", "password", "raw_string_password"), fields[3])
+func (f *fakeOpClient) EditItem(_ context.Context, id string, item map[string]any, vault string) (string, error) {
+	f.gotVault, f.editedID, f.editedItem, f.editCalls = vault, id, item, f.editCalls+1
+	return "edited", nil
 }
 
-// TestIngestVaultItem_NullJSONFieldBecomesEmptyString is the regression test
-// for a JSON `null` value decoding to a Go nil interface and then rendering
-// as the literal string "<nil>" via a bare fmt.Sprint - instead of the empty
-// string the original Ruby tool's `value.to_s` produced for the same input.
-func TestIngestVaultItem_NullJSONFieldBecomesEmptyString(t *testing.T) {
-	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", "Tooling", client)
-
-	secrets := []domain.ExtractedSecret{
-		{Name: "dev3/wtf/config", String: strptr(`{"foo":null}`)},
-	}
-
-	_, err := svc.IngestVaultItem(context.Background(), "dev4", secrets)
-	require.NoError(t, err)
-
-	fields := client.gotItem["fields"].([]map[string]any)
-	require.Len(t, fields, 1)
-	assert.Equal(t, concealedField("wtf-config", "foo", ""), fields[0])
-}
-
-// TestIngestVaultItem_PreservesLargeNumericFields is the regression test for
-// parseFlatJSONObject decoding JSON numbers into float64 by default - which
-// silently rounds or scientific-notation-ifies an integer bigger than 2^53
-// (an account/client ID, say) before it ever reaches stringify. UseNumber
-// keeps the original digit string intact all the way through.
-func TestIngestVaultItem_PreservesLargeNumericFields(t *testing.T) {
-	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", "Tooling", client)
-
-	secrets := []domain.ExtractedSecret{
-		{Name: "dev3/wtf/config", String: strptr(`{"clientId":123456789012345678}`)},
-	}
-
-	_, err := svc.IngestVaultItem(context.Background(), "dev4", secrets)
-	require.NoError(t, err)
-
-	fields := client.gotItem["fields"].([]map[string]any)
-	require.Len(t, fields, 1)
-	assert.Equal(t, concealedField("wtf-config", "clientId", "123456789012345678"), fields[0])
-}
-
-func TestIngestVaultItem_EmptySecretsMarshalFieldsAsEmptyArray(t *testing.T) {
-	client := &fakeOpClient{}
-	svc := onepassword.New("wtf", "Tooling", client)
-
-	_, err := svc.IngestVaultItem(context.Background(), "dev4", nil)
-	require.NoError(t, err)
-
-	// A nil Go slice marshals to JSON `null`, which the 1Password item-create
-	// API can reject for a "fields" array - it must always be `[]`.
-	b, err := json.Marshal(client.gotItem["fields"])
-	require.NoError(t, err)
-	assert.JSONEq(t, `[]`, string(b))
-}
-
-func concealedField(sectionID, label, value string) map[string]any {
+func vaultItem() map[string]any {
 	return map[string]any{
-		"section": map[string]any{"id": sectionID},
-		"label":   label,
-		"value":   value,
-		"type":    "CONCEALED",
+		"id": "abc123", "title": "k8s-wtf-dev4", "category": "SECURE_NOTE",
+		"updated_at": "2026-07-01T00:00:00Z", "version": 3,
+		"sections": []any{map[string]any{"id": "cfg", "label": "cfg"}},
+		"fields": []any{
+			map[string]any{"id": "f-1", "section": map[string]any{"id": "cfg"}, "label": "username", "value": "old", "type": "CONCEALED"},
+			map[string]any{"id": "f-2", "section": map[string]any{"id": "cfg"}, "label": "hand-added", "value": "keep", "type": "CONCEALED"},
+		},
 	}
+}
+
+func TestLoad_ReturnsANewItemWhenTheVaultHasNone(t *testing.T) {
+	client := &fakeOpClient{existing: nil}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item, err := svc.Load(context.Background(), "dev4")
+	require.NoError(t, err)
+
+	assert.True(t, item.IsNew())
+	assert.Equal(t, "k8s-wtf-dev4", item.Title())
+	assert.Equal(t, "Tooling", client.gotVault)
+}
+
+// A failed lookup must not read as "no item yet": doing so would create a
+// second item alongside the one already there.
+func TestLoad_PropagatesLookupFailures(t *testing.T) {
+	client := &fakeOpClient{getErr: errors.New("authorization timeout")}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	_, err := svc.Load(context.Background(), "dev4")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authorization timeout")
+}
+
+func TestCommit_CreatesWhenTheItemIsNew(t *testing.T) {
+	client := &fakeOpClient{}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item := domain.NewOnePasswordItem("k8s-wtf-dev4", "SECURE_NOTE")
+	item.UpsertField("cfg", "username", "v", "CONCEALED")
+
+	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
+	require.NoError(t, err)
+
+	assert.True(t, result.Created)
+	assert.Equal(t, 1, client.createCalls)
+	assert.Equal(t, 0, client.editCalls)
+	assert.Equal(t, "Tooling", client.gotVault)
+}
+
+func TestCommit_EditsWhenTheItemExists(t *testing.T) {
+	client := &fakeOpClient{existing: vaultItem()}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item, err := svc.Load(context.Background(), "dev4")
+	require.NoError(t, err)
+	item.UpsertField("cfg", "username", "new", "CONCEALED")
+
+	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
+	require.NoError(t, err)
+
+	assert.False(t, result.Created)
+	assert.Equal(t, 1, client.editCalls)
+	assert.Equal(t, "abc123", client.editedID)
+	// op item edit validates these; a payload without them is rejected.
+	assert.Equal(t, "abc123", client.editedItem["id"])
+	assert.Contains(t, client.editedItem, "updated_at")
+}
+
+// The default. A field the vault holds that this run did not write is counted
+// and sent back untouched -- under REPLACE semantics, omitting it would delete
+// it, and it is frequently something a human put there on purpose.
+func TestCommit_PreservesStaleFieldsAndCountsThem(t *testing.T) {
+	client := &fakeOpClient{existing: vaultItem()}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item, err := svc.Load(context.Background(), "dev4")
+	require.NoError(t, err)
+	item.UpsertField("cfg", "username", "new", "CONCEALED")
+
+	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, result.StaleFields, "hand-added was not written this run")
+	assert.Equal(t, 0, result.FieldsPruned)
+
+	fields := client.editedItem["fields"].([]any)
+	require.Len(t, fields, 2, "the stale field must still be in the payload")
+}
+
+func TestCommit_PrunesOnlyWhenAsked(t *testing.T) {
+	client := &fakeOpClient{existing: vaultItem()}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item, err := svc.Load(context.Background(), "dev4")
+	require.NoError(t, err)
+	item.UpsertField("cfg", "username", "new", "CONCEALED")
+
+	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{Prune: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, result.StaleFields)
+	assert.Equal(t, 1, result.FieldsPruned)
+
+	fields := client.editedItem["fields"].([]any)
+	require.Len(t, fields, 1)
+	assert.Equal(t, "f-1", fields[0].(map[string]any)["id"])
+}
+
+func TestCommit_ReportsUnknownTopLevelKeys(t *testing.T) {
+	raw := vaultItem()
+	raw["favorite"] = true
+	client := &fakeOpClient{existing: raw}
+	svc := onepassword.New("wtf", "Tooling", client)
+
+	item, err := svc.Load(context.Background(), "dev4")
+	require.NoError(t, err)
+
+	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"favorite"}, result.UnknownKeys)
+	assert.Equal(t, true, client.editedItem["favorite"], "and it is written back untouched")
+}
+
+func TestCommit_RefusesNil(t *testing.T) {
+	svc := onepassword.New("wtf", "Tooling", &fakeOpClient{})
+
+	_, err := svc.Commit(context.Background(), nil, onepassword.CommitOptions{})
+	require.Error(t, err)
 }

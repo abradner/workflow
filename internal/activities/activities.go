@@ -290,6 +290,16 @@ type SyncEnvSecretsInput struct {
 
 type SyncEnvSecretsResult struct {
 	SecretsExtracted int
+
+	// ItemCreated distinguishes a first run for an environment from an update
+	// of an existing item.
+	ItemCreated bool
+
+	// StaleFields counts fields the vault holds that this run did not write.
+	// A count, deliberately: field labels are close enough to the secrets
+	// themselves, and everything returned from an activity is recorded in
+	// Temporal's durable, readable event history.
+	StaleFields int
 }
 
 // SyncEnvSecrets extracts every AWS secret for SourceEnv, remaps it onto
@@ -343,24 +353,59 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 		secrets = mergeSecrets(secrets, exact)
 	}
 
-	mapper := transformers.OnePasswordSamlKeyInjector{
-		SourceEnv:   in.SourceEnv,
-		TargetEnv:   in.TargetEnv,
+	logger := activity.GetLogger(ctx)
+
+	// Key injection first, on the raw payloads: the injector rewrites a JSON
+	// secret in place, and doing it before mapping means the mapper sees final
+	// values and never has to reach back into fields it already wrote.
+	injected := transformers.OnePasswordSamlKeyInjector{
 		KCPublicKey: in.KCPublicKey,
-		Logger:      activity.GetLogger(ctx),
-	}
-	mapped := mapper.Call(secrets)
+		Logger:      logger,
+	}.Call(secrets)
 
 	if in.DryRun {
 		return SyncEnvSecretsResult{SecretsExtracted: len(secrets)}, nil
 	}
 
 	svc := onepassword.New(in.ProjectName, in.VaultName, a.OnePassword)
-	if _, err := svc.IngestVaultItem(ctx, in.TargetEnv, mapped); err != nil {
-		return SyncEnvSecretsResult{}, fmt.Errorf("ingesting vault item: %w", err)
+
+	// Read before writing. This is what makes the run an upsert: the vault's
+	// own field IDs come back with the item and are preserved through
+	// UpsertField, so a field stays the same field across runs.
+	item, err := svc.Load(ctx, in.TargetEnv)
+	if err != nil {
+		return SyncEnvSecretsResult{}, err
 	}
 
-	return SyncEnvSecretsResult{SecretsExtracted: len(secrets)}, nil
+	transformers.OnePasswordItemMapper{
+		SourceEnv: in.SourceEnv,
+		TargetEnv: in.TargetEnv,
+		Logger:    logger,
+	}.Call(item, injected)
+
+	committed, err := svc.Commit(ctx, item, onepassword.CommitOptions{})
+	if err != nil {
+		return SyncEnvSecretsResult{}, err
+	}
+
+	// Warned about, never acted on. A stale field is often something a human
+	// put there deliberately, so removing it is an explicit, separate act.
+	// Counted rather than named: field labels are close enough to the secrets
+	// themselves, and this line ends up in Temporal's durable event history.
+	if committed.StaleFields > 0 {
+		logger.Warn("Vault item has fields this run did not write; they are preserved",
+			"env", in.TargetEnv, "count", committed.StaleFields)
+	}
+	if len(committed.UnknownKeys) > 0 {
+		logger.Warn("1Password returned item keys this tool does not model; written back untouched",
+			"env", in.TargetEnv, "keys", committed.UnknownKeys)
+	}
+
+	return SyncEnvSecretsResult{
+		SecretsExtracted: len(secrets),
+		ItemCreated:      committed.Created,
+		StaleFields:      committed.StaleFields,
+	}, nil
 }
 
 // --- RenderTalos ------------------------------------------------------------

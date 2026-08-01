@@ -19,24 +19,26 @@ func (f *fakeLogger) Info(msg string, _ ...any) { f.infos = append(f.infos, msg)
 
 func strptr(s string) *string { return &s }
 
-func TestOnePasswordSamlKeyInjector_MapsEnvironmentNames(t *testing.T) {
-	mapper := transformers.OnePasswordSamlKeyInjector{SourceEnv: "dev4", TargetEnv: "dev5"}
+// Environment remapping is no longer this transformer's job - it belongs to
+// OnePasswordItemMapper, which has to do it anyway to compute the section ID.
+// This asserts the separation holds: a payload with no public key field passes
+// through completely untouched, environment names and all.
+func TestOnePasswordSamlKeyInjector_DoesNotRemapEnvironments(t *testing.T) {
+	mapper := transformers.OnePasswordSamlKeyInjector{KCPublicKey: "fresh_key"}
 
 	result := mapper.Call([]domain.ExtractedSecret{
 		{Name: "dev4/pmn-config", String: strptr("conn=db.dev4.com")},
 	})
 
 	require.Len(t, result, 1)
-	assert.Equal(t, "dev5/pmn-config", result[0].Name)
+	assert.Equal(t, "dev4/pmn-config", result[0].Name)
 	require.NotNil(t, result[0].String)
-	assert.Equal(t, "conn=db.dev5.com", *result[0].String)
+	assert.Equal(t, "conn=db.dev4.com", *result[0].String)
 }
 
 func TestOnePasswordSamlKeyInjector_InjectsFreshPublicKey(t *testing.T) {
 	logger := &fakeLogger{}
 	mapper := transformers.OnePasswordSamlKeyInjector{
-		SourceEnv:   "dev4",
-		TargetEnv:   "dev5",
 		KCPublicKey: "fresh_key",
 		Logger:      logger,
 	}
@@ -63,11 +65,7 @@ func TestOnePasswordSamlKeyInjector_InjectsFreshPublicKey(t *testing.T) {
 // come back out rounded/in scientific notation, corrupting a field this
 // transformer was never meant to touch.
 func TestOnePasswordSamlKeyInjector_PreservesLargeNumericFieldsWhileInjecting(t *testing.T) {
-	mapper := transformers.OnePasswordSamlKeyInjector{
-		SourceEnv:   "dev4",
-		TargetEnv:   "dev5",
-		KCPublicKey: "fresh_key",
-	}
+	mapper := transformers.OnePasswordSamlKeyInjector{KCPublicKey: "fresh_key"}
 
 	result := mapper.Call([]domain.ExtractedSecret{
 		{Name: "dev4/pmn-ui-api-config", String: strptr(`{"mp.jwt.verify.publickey":"stale","clientId":123456789012345678}`)},
@@ -83,7 +81,7 @@ func TestOnePasswordSamlKeyInjector_PreservesLargeNumericFieldsWhileInjecting(t 
 }
 
 func TestOnePasswordSamlKeyInjector_LeavesNonMatchingJSONAlone(t *testing.T) {
-	mapper := transformers.OnePasswordSamlKeyInjector{SourceEnv: "dev4", TargetEnv: "dev5", KCPublicKey: "fresh_key"}
+	mapper := transformers.OnePasswordSamlKeyInjector{KCPublicKey: "fresh_key"}
 
 	result := mapper.Call([]domain.ExtractedSecret{
 		{Name: "dev4/other", String: strptr(`{"unrelated":"field"}`)},
