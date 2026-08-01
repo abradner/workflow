@@ -99,7 +99,10 @@ func (r *Runner) Run(_ context.Context, name string, args []string, stdin []byte
 // Omitting --vault is not an error, but it is rarely what anyone means: the
 // item silently lands in the account's default (personal) vault.
 func (r *Runner) create(args []string, stdin []byte) (string, string, error) {
-	flags, _ := parseArgs(args)
+	flags, _, err := parseArgs("create", args)
+	if err != nil {
+		return "", "[ERROR] " + err.Error(), fmt.Errorf("exit 1")
+	}
 
 	var tpl struct {
 		Title    string `json:"title"`
@@ -146,14 +149,40 @@ func (r *Runner) create(args []string, stdin []byte) (string, string, error) {
 	}
 	r.Items = append(r.Items, item)
 
-	return item.ID, "", nil
+	return item.summaryOutput(), "", nil
+}
+
+// summaryOutput reproduces the human-readable block `op item create` prints
+// when no output-selection flag is given -- which is what production actually
+// receives, since CreateItem passes no --format. It is deliberately not a bare
+// ID: returning one would invent a contract the real CLI does not offer and
+// invite callers to depend on it.
+func (i *Item) summaryOutput() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "ID:          %s\n", i.ID)
+	fmt.Fprintf(&b, "Title:       %s\n", i.Title)
+	fmt.Fprintf(&b, "Vault:       %s\n", i.Vault)
+	fmt.Fprintf(&b, "Category:    %s\n", i.Category)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// Last returns the most recently created item, for tests that need to inspect
+// what was written without parsing the CLI's stdout.
+func (r *Runner) Last() *Item {
+	if len(r.Items) == 0 {
+		return nil
+	}
+	return r.Items[len(r.Items)-1]
 }
 
 // get models `op item get <ref> [--vault V] [--format json | --fields F]`.
 //
 // A miss is exit 1 with a message on stderr, not empty output on exit 0.
 func (r *Runner) get(args []string) (string, string, error) {
-	flags, positional := parseArgs(args)
+	flags, positional, err := parseArgs("get", args)
+	if err != nil {
+		return "", "[ERROR] " + err.Error(), fmt.Errorf("exit 1")
+	}
 	if len(positional) == 0 {
 		return "", "[ERROR] specify an item", fmt.Errorf("exit 1")
 	}
@@ -196,31 +225,70 @@ func (r *Runner) get(args []string) (string, string, error) {
 	return string(out), "", nil
 }
 
-// parseArgs splits argv into --flag/value pairs and bare positionals. Good
-// enough for the handful of flags this tool passes; not a general pflag
-// reimplementation.
-func parseArgs(args []string) (map[string]string, []string) {
+// flagSpec declares which flags each subcommand accepts, and whether each one
+// takes a value. Parsing is command-specific because the real CLI is: an
+// unknown flag is rejected outright, and a value-taking flag with nothing after
+// it is a missing-argument error, not a boolean.
+//
+// This matters more than it looks. An earlier version accepted any `--flag` and
+// treated a valueless one as "true", which meant a typo like `--catgory` was
+// silently recorded and ignored — so a test asserting the client's argv would
+// still pass against an invocation the real CLI rejects. That is precisely the
+// failure this package exists to prevent, reproduced inside the thing meant to
+// prevent it.
+var flagSpec = map[string]map[string]bool{ // subcommand -> flag -> takes a value
+	"create": {
+		"--category": true, "--vault": true, "--template": true,
+		"--title": true, "--tags": true, "--dry-run": false, "--reveal": false,
+	},
+	"get": {
+		"--vault": true, "--fields": true, "--format": true,
+		"--reveal": false, "--include-archive": false,
+	},
+}
+
+// parseArgs splits argv into flags and positionals for one subcommand,
+// rejecting what the real CLI rejects. It is not a general pflag
+// reimplementation — only the flags this tool actually passes are modelled.
+func parseArgs(sub string, args []string) (map[string]string, []string, error) {
+	spec, known := flagSpec[sub]
+	if !known {
+		return nil, nil, fmt.Errorf("unknown subcommand %q", sub)
+	}
+
 	flags := map[string]string{}
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+
+		if !strings.HasPrefix(a, "--") {
+			positional = append(positional, a) // includes the bare "-"
+			continue
+		}
+
+		name, inline, hasInline := strings.Cut(a, "=")
+		takesValue, ok := spec[name]
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown flag: %s", name)
+		}
+
 		switch {
-		case strings.HasPrefix(a, "--") && strings.Contains(a, "="):
-			parts := strings.SplitN(a, "=", 2)
-			flags[parts[0]] = parts[1]
-		case strings.HasPrefix(a, "--"):
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") && args[i+1] != "-" {
-				flags[a] = args[i+1]
-				i++
-			} else {
-				flags[a] = "true"
+		case !takesValue:
+			if hasInline {
+				return nil, nil, fmt.Errorf("flag %s does not take a value", name)
 			}
+			flags[name] = "true"
+		case hasInline:
+			flags[name] = inline
+		case i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") && args[i+1] != "-":
+			flags[name] = args[i+1]
+			i++
 		default:
-			positional = append(positional, a)
+			return nil, nil, fmt.Errorf("flag needs an argument: %s", name)
 		}
 	}
-	return flags, positional
+	return flags, positional, nil
 }
 
 // normalizeCategory renders a category the way `op item get --format json`
