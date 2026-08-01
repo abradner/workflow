@@ -88,3 +88,83 @@ func (c *Client) ReadNote(ctx context.Context, itemID string) (string, error) {
 	}
 	return content, nil
 }
+
+// GetItem returns the item titled or identified by ref, exactly as
+// `op item get --format json` reports it, or nil if no such item exists.
+//
+// A miss is not an error. `op` distinguishes them by exit status - not-found
+// is exit 1 with a message on stderr, never empty output on exit 0 - and
+// sync-1p's whole upsert flow depends on telling "no item yet, create one"
+// apart from "the CLI failed". Callers get (nil, nil) for the former.
+//
+// vault may be empty when ref is an item ID, which is globally unique. It
+// should not be when ref is a title: titles are only unique within a vault,
+// and resolving one across an account is chance, not design.
+func (c *Client) GetItem(ctx context.Context, ref, vault string) (map[string]any, error) {
+	args := []string{"item", "get", ref, "--format", "json"}
+	if vault != "" {
+		args = append(args, "--vault", vault)
+	}
+
+	stdout, stderr, err := c.runner.Run(ctx, "op", args, nil)
+	if err != nil {
+		if isNotFound(stderr) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read 1P item %s: %s", ref, strings.TrimSpace(stderr))
+	}
+
+	var item map[string]any
+	// UseNumber so a large numeric field survives the round trip verbatim
+	// rather than going through float64 - the same trap documented on
+	// onepassword.parseFlatJSONObject, and considerably worse here because
+	// whatever we decode is written straight back to the vault.
+	dec := json.NewDecoder(strings.NewReader(stdout))
+	dec.UseNumber()
+	if err := dec.Decode(&item); err != nil {
+		return nil, fmt.Errorf("decoding 1Password item %s: %w", ref, err)
+	}
+	return item, nil
+}
+
+// EditItem writes item back, replacing the stored item wholesale.
+//
+// Two things make this sharper than it looks, both verified against op 2.35.0
+// and recorded in docs/OP_CLI_NOTES.md:
+//
+//   - The payload must be a *round-tripped* item - the full structure GetItem
+//     returned, including id, version, created_at and updated_at. A
+//     hand-assembled subset is rejected outright ("Item updatedAt must be >
+//     1970-01-01"), which is why the domain model wraps what the CLI gave it
+//     rather than rebuilding a payload from modelled fields.
+//   - The write is REPLACE, not merge. Any field absent from the payload is
+//     deleted from the vault. Preserving a field you are not modifying means
+//     sending it back verbatim; there is no passive option.
+func (c *Client) EditItem(ctx context.Context, itemID string, item map[string]any, vault string) (string, error) {
+	if itemID == "" {
+		return "", fmt.Errorf("refusing to edit a 1Password item with no ID")
+	}
+
+	payload, err := json.Marshal(item)
+	if err != nil {
+		return "", fmt.Errorf("encoding 1Password item: %w", err)
+	}
+
+	args := []string{"item", "edit", itemID}
+	if vault != "" {
+		args = append(args, "--vault", vault)
+	}
+
+	stdout, stderr, err := c.runner.Run(ctx, "op", args, payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to edit 1P item %s: %s", itemID, strings.TrimSpace(stderr))
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+// isNotFound distinguishes "no such item" from a real failure. `op` has no
+// distinct exit code for it, so the message is all there is to go on.
+func isNotFound(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "isn't an item") || strings.Contains(s, "no item matches")
+}

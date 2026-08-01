@@ -108,6 +108,8 @@ func (r *Runner) Run(_ context.Context, name string, args []string, stdin []byte
 		return r.create(args[2:], stdin)
 	case "get":
 		return r.get(args[2:])
+	case "edit":
+		return r.edit(args[2:], stdin)
 	default:
 		return "", fmt.Sprintf("unknown subcommand %q", args[1]), fmt.Errorf("exit 1")
 	}
@@ -206,6 +208,65 @@ func (r *Runner) Last() *Item {
 	return r.Items[len(r.Items)-1]
 }
 
+// edit models `op item edit`, whose contract is narrower than it looks.
+//
+// The payload must be a round-tripped item: the real CLI validates it and
+// rejects a hand-assembled subset with "Item updatedAt must be > 1970-01-01".
+// Modelling that rejection is the point - the Ruby original's to_h emitted
+// only title/category/sections/fields and would have failed here every time,
+// undiscoverable without running the binary.
+//
+// The write is REPLACE: fields absent from the payload are dropped.
+func (r *Runner) edit(args []string, stdin []byte) (string, string, error) {
+	flags, positional, err := parseArgs("edit", args)
+	if err != nil {
+		return "", "[ERROR] " + err.Error(), fmt.Errorf("exit 1")
+	}
+	if len(positional) == 0 {
+		return "", "[ERROR] specify an item", fmt.Errorf("exit 1")
+	}
+	ref := positional[0]
+
+	var payload map[string]any
+	if err := json.Unmarshal(stdin, &payload); err != nil {
+		return "", "[ERROR] unable to process line 1: invalid item template", fmt.Errorf("exit 1")
+	}
+	for _, required := range []string{"id", "updated_at"} {
+		if _, ok := payload[required]; !ok {
+			return "", "[ERROR] unable to process line 1: Validation: Couldn't validate the item: " +
+				"{1. Item updatedAt must be > 1970-01-01}", fmt.Errorf("exit 1")
+		}
+	}
+
+	vault := flags["--vault"]
+	var found *Item
+	for _, it := range r.Items {
+		if it.ID != ref && it.Title != ref {
+			continue
+		}
+		if vault != "" && it.Vault != vault {
+			continue
+		}
+		found = it
+		break
+	}
+	if found == nil {
+		return "", "[ERROR] could not find item to edit", fmt.Errorf("exit 1")
+	}
+	if flags["--dry-run"] == "true" {
+		return found.summaryOutput(), "", nil
+	}
+
+	// REPLACE, not merge.
+	if title, ok := payload["title"].(string); ok {
+		found.Title = title
+	}
+	found.Sections, _ = payload["sections"].([]any)
+	found.Fields, _ = payload["fields"].([]any)
+
+	return found.summaryOutput(), "", nil
+}
+
 // get models `op item get <ref> [--vault V] [--format json | --fields F]`.
 //
 // A miss is exit 1 with a message on stderr, not empty output on exit 0.
@@ -242,13 +303,20 @@ func (r *Runner) get(args []string) (string, string, error) {
 		return found.Note, "", nil
 	}
 
+	// The full shape `op item get --format json` returns. created_at,
+	// updated_at and version are included because `op item edit` validates
+	// them on the way back in - a get whose output cannot be fed to an edit
+	// would model the CLI incorrectly in exactly the way that matters.
 	out, err := json.Marshal(map[string]any{
-		"id":       found.ID,
-		"title":    found.Title,
-		"category": found.Category,
-		"vault":    map[string]any{"name": found.Vault},
-		"sections": found.Sections,
-		"fields":   found.Fields,
+		"id":         found.ID,
+		"title":      found.Title,
+		"category":   found.Category,
+		"vault":      map[string]any{"name": found.Vault},
+		"sections":   found.Sections,
+		"fields":     found.Fields,
+		"version":    1,
+		"created_at": "2026-08-01T00:00:00Z",
+		"updated_at": "2026-08-01T00:00:00Z",
 	})
 	if err != nil {
 		return "", "[ERROR] encoding item", fmt.Errorf("exit 1")
@@ -276,6 +344,9 @@ func (r *Runner) get(args []string) (string, string, error) {
 var flagSpec = map[string]map[string]bool{ // subcommand -> flag -> takes a value
 	"create": {
 		"--category": true, "--vault": true, "--dry-run": false,
+	},
+	"edit": {
+		"--vault": true, "--dry-run": false,
 	},
 	"get": {
 		"--vault": true, "--fields": true, "--format": true,
