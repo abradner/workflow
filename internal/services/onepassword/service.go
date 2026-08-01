@@ -4,11 +4,11 @@ package onepassword
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/abradner/workflow/internal/domain"
+	"github.com/abradner/workflow/internal/transformers"
 )
 
 // Client is the subset of the 1Password CLI wrapper this service needs.
@@ -44,9 +44,9 @@ func (s *Service) IngestVaultItem(ctx context.Context, env string, extractedSecr
 
 		switch {
 		case secret.String != nil:
-			if keys, values, ok := parseFlatJSONObject(*secret.String); ok {
+			if keys, values, ok := transformers.ParseFlatJSONObject(*secret.String); ok {
 				for _, k := range keys {
-					fields = append(fields, concealedField(sectionID, k, stringify(values[k])))
+					fields = append(fields, concealedField(sectionID, k, transformers.Stringify(values[k])))
 				}
 			} else {
 				fields = append(fields, concealedField(sectionID, "password", *secret.String))
@@ -75,18 +75,6 @@ func concealedField(sectionID, label, value string) map[string]any {
 	}
 }
 
-// stringify renders a decoded JSON value as 1Password would expect it as a
-// field value. Used instead of a bare fmt.Sprint(v): a JSON `null` decodes
-// to a Go nil interface, and fmt.Sprint(nil) renders that as the literal
-// string "<nil>" - a bogus, non-empty secret value - rather than the empty
-// string the original Ruby tool's `value.to_s` produced for the same input.
-func stringify(v any) string {
-	if v == nil {
-		return ""
-	}
-	return fmt.Sprint(v)
-}
-
 // sanitizeSectionID drops the leading environment segment from an AWS
 // secret name and joins the rest with hyphens, e.g. "dev3/wtf/config" ->
 // "wtf-config".
@@ -96,55 +84,4 @@ func sanitizeSectionID(awsName string) string {
 		parts = parts[1:]
 	}
 	return strings.Join(parts, "-")
-}
-
-// parseFlatJSONObject decodes a JSON object's top-level fields, preserving
-// their original order (encoding/json's map decoding does not - Go map
-// iteration order is randomized on purpose). Returns ok=false if s isn't a
-// JSON object.
-func parseFlatJSONObject(s string) (keys []string, values map[string]any, ok bool) {
-	dec := json.NewDecoder(strings.NewReader(s))
-	// Without this, a JSON number decodes to float64, which can silently
-	// round or scientific-notation-ify a large integer (an account/client
-	// ID, say) before stringify ever sees it. json.Number preserves the
-	// original digit string exactly, and fmt.Sprint renders it verbatim
-	// since it implements fmt.Stringer.
-	dec.UseNumber()
-
-	tok, err := dec.Token()
-	if err != nil {
-		return nil, nil, false
-	}
-	if delim, isDelim := tok.(json.Delim); !isDelim || delim != '{' {
-		return nil, nil, false
-	}
-
-	values = map[string]any{}
-	for dec.More() {
-		keyTok, err := dec.Token()
-		if err != nil {
-			return nil, nil, false
-		}
-		key, isString := keyTok.(string)
-		if !isString {
-			return nil, nil, false
-		}
-
-		var value any
-		if err := dec.Decode(&value); err != nil {
-			return nil, nil, false
-		}
-
-		keys = append(keys, key)
-		values[key] = value
-	}
-
-	if _, err := dec.Token(); err != nil { // consume closing '}'
-		return nil, nil, false
-	}
-	if dec.More() {
-		return nil, nil, false // trailing content after the object
-	}
-
-	return keys, values, true
 }
