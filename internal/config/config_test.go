@@ -76,7 +76,14 @@ func TestLoad_MissingRequiredVar(t *testing.T) {
 }
 
 func TestLoad_ExpandsRelativePaths(t *testing.T) {
-	dir := t.TempDir()
+	// EvalSymlinks, not t.TempDir() directly: on macOS TempDir hands back a
+	// path under /var, which is a symlink to /private/var. Load resolves
+	// relative paths with filepath.Abs, which consults os.Getwd(), and after
+	// the Chdir below that returns the *resolved* /private/var form. Comparing
+	// the unresolved expectation against the resolved actual fails on macOS
+	// while passing on Linux, where /tmp is not symlinked.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
