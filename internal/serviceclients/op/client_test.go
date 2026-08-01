@@ -191,3 +191,31 @@ func TestContractFake_RejectsValuelessFlag(t *testing.T) {
 	assert.Contains(t, stderr, "flag needs an argument: --vault")
 	assert.Empty(t, runner.Items)
 }
+
+// --dry-run previews without creating. A production regression that started
+// passing it would otherwise pass a test asserting an item was created, while
+// the real CLI wrote nothing.
+func TestContractFake_DryRunCreatesNothing(t *testing.T) {
+	runner := &optest.Runner{}
+
+	out, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--dry-run", "-"},
+		[]byte(`{"title":"k8s-wtf-dev4","category":"SECURE_NOTE"}`))
+
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.Contains(t, out, "k8s-wtf-dev4", "the preview still describes the item")
+	assert.Empty(t, runner.Items, "--dry-run must not record an item")
+}
+
+// --template is not modelled, so it must be rejected rather than accepted and
+// silently ignored by create().
+func TestContractFake_RejectsUnmodelledTemplateFlag(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--template=item.json"}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "unknown flag: --template")
+}

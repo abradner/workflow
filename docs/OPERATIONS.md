@@ -105,12 +105,21 @@ Phase 1 — get the workloads deployed:
 Phase 2 — provision against the now-running instance:
 
 5. `setup-keycloak` — the realm, clients, groups and users
+6. commit and push `DEST_DIR` **again** — `setup-keycloak` writes each
+   environment's exported SAML descriptor to
+   `pmn-keycloak/overlay/<env>/sso.xml` and `sso.xml.b64`. Those are produced in
+   phase 2, after the phase 1 push, so without a second push they stay on your
+   machine and never reach the workloads repo.
 
 > **The ordering trap.** `sync-1p` injects the live Keycloak public key into any
 > secret payload carrying `mp.jwt.verify.publickey`, and it fetches that key from
 > the target environment's Keycloak. Run in phase 1 — before Keycloak exists —
-> that fetch fails, injection is **silently skipped**, and the Secure Note is
-> written without it. Because `sync-1p` currently *creates* rather than updates,
+> that fetch fails and injection is **silently skipped** — which does not leave
+> the field empty. The transformer preserves the value it read from the *source*
+> environment's AWS secret, so the note is written carrying the **source
+> environment's public key**, presented as though it were this environment's.
+> That is considerably more deceptive than an absent field: everything looks
+> populated, and the JWTs simply fail to verify. Because `sync-1p` currently *creates* rather than updates,
 > re-running it after phase 2 adds a second item rather than repairing the first.
 > Until the upsert work lands, treat the SAML key as something to verify by hand
 > after phase 2, or accept that a first-time environment needs `sync-1p` run

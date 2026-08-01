@@ -147,6 +147,13 @@ func (r *Runner) create(args []string, stdin []byte) (string, string, error) {
 		// real CLI - that is the basis for stable field identity across runs.
 		Fields: tpl.Fields,
 	}
+	// --dry-run is non-mutating in the real CLI: it previews the item and
+	// creates nothing. Recording it here would let a production regression that
+	// accidentally passes --dry-run sail through a test asserting an item was
+	// created, while the real command wrote nothing at all.
+	if flags["--dry-run"] == "true" {
+		return item.summaryOutput(), "", nil
+	}
 	r.Items = append(r.Items, item)
 
 	return item.summaryOutput(), "", nil
@@ -236,10 +243,15 @@ func (r *Runner) get(args []string) (string, string, error) {
 // still pass against an invocation the real CLI rejects. That is precisely the
 // failure this package exists to prevent, reproduced inside the thing meant to
 // prevent it.
+// The spec is deliberately narrow: it lists only what this fake actually
+// models, not every flag the real CLI accepts. Advertising a flag that create()
+// then ignores is worse than rejecting it -- `--template` was accepted here
+// while create() only ever read stdin, so the documented `--template=<file>`
+// form would have failed with a bogus missing-category error. A flag this tool
+// starts passing must be modelled here at the same time.
 var flagSpec = map[string]map[string]bool{ // subcommand -> flag -> takes a value
 	"create": {
-		"--category": true, "--vault": true, "--template": true,
-		"--title": true, "--tags": true, "--dry-run": false, "--reveal": false,
+		"--category": true, "--vault": true, "--dry-run": false,
 	},
 	"get": {
 		"--vault": true, "--fields": true, "--format": true,
