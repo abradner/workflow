@@ -108,8 +108,25 @@ stacked the default: the beta's observed merge modes cannot produce per-PR
 merge commits, so a stacked batch lands its interstitials squash-merged.
 **Put that trade to the operator before fan-out; never assume it.**
 
-Record the flavour in each PR's Batch block. **A batch finishes in the flavour
-it started.**
+Record the flavour in each PR's Batch block. **A batch normally finishes in the
+flavour it started**, and stacked → manual via `gh stack unstack` is the routine
+mid-batch transition.
+
+**The reverse is permitted for one specific reason**, added after batch
+`op-contract-docs` (#5–#7) took it: the manual flavour's payoff is a merge commit
+wrapping *exactly one* reviewed commit, so once an interstitial has grown to
+several commits that payoff is already gone and the stacked squash train is
+strictly easier to merge. Switching then costs nothing and buys a cleaner train.
+
+Adopt existing PRs with **`gh stack link <branch|pr>...`** (bottom to top), not
+`gh stack init --adopt`: `link` operates GitHub-side, uses the open PRs as they
+are, and needs no local tracking state — so branch SHAs are untouched and
+existing review context survives. Verify afterwards that each PR's base is
+unchanged and no branch was rewritten. Then update every Batch block: flavour,
+the reason, and the fact that merging is now the web UI stack button.
+
+Do not take this transition to escape a problem — that is what the one-way
+degrade is for. Take it only when the multi-commit condition genuinely holds.
 
 ## Phase 2 — Self-review, before any PR opens
 

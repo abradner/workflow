@@ -9,7 +9,7 @@ what the system *is*, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 | Tool | Needed for | Notes |
 |---|---|---|
-| Go 1.24+ | building | `mise.toml` pins it |
+| Go 1.26+ | building | `go.mod` requires 1.26.4; `mise.toml` pins 1.26 |
 | `op` (1Password CLI) | `sync-1p`, `render-talos` | must be signed in — see below |
 | AWS credentials | `sync-1p` | ambient chain: env, `~/.aws`, SSO, instance role |
 | Docker | external mode only | not needed for embedded runs |
@@ -45,7 +45,7 @@ cheapest failure mode available.
 | `APP_PATTERN` | Glob for app discovery under `SOURCE_DIR` |
 | `TLD` | Domain for generated hostnames |
 | `REGISTRY_HOSTNAME`, `REGISTRY_1P_ITEM_ID` | Registry pull secret |
-| `OP_TALOS_ITEM_ID` | Secure Note for `render-talos` |
+| `OP_TALOS_ITEM_ID` | Secure Note for `render-talos`. **Not** `required` in `config.Config`, despite the rule above: omitting it fails later inside `op` with an empty item ID rather than at startup |
 | `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` | Optional, both default to `admin` |
 
 > **The one that bites.** `REPO_URL` and `DEST_DIR` refer to the **workloads**
@@ -90,11 +90,31 @@ runs with retries disabled because that write is not safe to repeat. Read
 
 Nothing enforces this; the workflows are independent.
 
+**Keycloak is itself one of the generated workloads**, so the ordering is
+genuinely two-phase — `setup-keycloak` cannot run until the Keycloak it
+provisions is deployed and reachable, which requires `sync`, `setup-argo`, a
+push, and an ArgoCD sync to have happened first.
+
+Phase 1 — get the workloads deployed:
+
 1. `sync-1p` — secrets must exist before workloads referencing them start
-2. `setup-keycloak` — realm must exist before apps authenticate against it
-3. `sync` — write the manifests
-4. `setup-argo` — publish the ApplicationSet that points at them
-5. commit and push `DEST_DIR`, then `CLUSTER_APPS_DIR`
+2. `sync` — write the manifests
+3. `setup-argo` — publish the ApplicationSet that points at them
+4. commit and push `DEST_DIR`, then `CLUSTER_APPS_DIR`; wait for ArgoCD to sync
+
+Phase 2 — provision against the now-running instance:
+
+5. `setup-keycloak` — the realm, clients, groups and users
+
+> **The ordering trap.** `sync-1p` injects the live Keycloak public key into any
+> secret payload carrying `mp.jwt.verify.publickey`, and it fetches that key from
+> the target environment's Keycloak. Run in phase 1 — before Keycloak exists —
+> that fetch fails, injection is **silently skipped**, and the Secure Note is
+> written without it. Because `sync-1p` currently *creates* rather than updates,
+> re-running it after phase 2 adds a second item rather than repairing the first.
+> Until the upsert work lands, treat the SAML key as something to verify by hand
+> after phase 2, or accept that a first-time environment needs `sync-1p` run
+> again and the stale item removed manually.
 
 `render-talos` is cluster bootstrap and stands outside this sequence.
 
@@ -165,8 +185,16 @@ The exception is `sync-1p`. Its 1Password write is not retry-safe, so a run that
 fails *after* that write may have left an item behind. Check the vault before
 re-running rather than assuming a clean slate.
 
-For the others, a failed run leaves at worst a partially-written directory,
-which the next successful run overwrites.
+`setup-keycloak` is the other exception, for a different reason: a failure part
+way through leaves **partially provisioned external state** — a realm, clients,
+groups or users that exist while later ones do not. Re-running usually
+continues cleanly, because provisioning treats 409 Conflict as success, but
+"safe to re-run" is not the same as "left no trace". Inspect the realm and the
+per-environment error output rather than assuming the retry started from
+nothing.
+
+For the file-writing commands a failed run leaves at worst a partially-written
+directory, which the next successful run overwrites.
 
 ## Routine care
 
