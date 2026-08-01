@@ -11,6 +11,10 @@ coverage/
 pmn-kustomize/
 *-workloads/
 
+# Agent tooling. The shared steering files (AGENTS.md, CLAUDE.md) are tracked;
+# per-developer local overrides are not.
+.claude/settings.local.json
+
 # Editor / IDE
 .idea/
 .vscode/

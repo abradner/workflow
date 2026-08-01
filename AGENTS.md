@@ -1,5 +1,43 @@
 # Agent Onboarding: Workflow
 
+This is the canonical steering file for coding agents working in this repo.
+`CLAUDE.md` imports it rather than duplicating it, so there is one set of
+instructions rather than two that drift.
+
+## Start here
+
+This file covers layout, the workflow contract, and the working rules. For
+anything deeper, go to [docs/](docs/README.md) rather than reverse-engineering
+it from the code:
+
+| Question | Read |
+|---|---|
+| What is this system, and why is it shaped like this? | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| What does this package do, and what will bite me? | [docs/modules/](docs/modules/README.md) |
+| How do I run it / why did a run fail? | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+| I need the Go or Temporal concept explained | [docs/GO_NOTES.md](docs/GO_NOTES.md) |
+| I'm touching anything that shells out to `op` | [docs/OP_CLI_NOTES.md](docs/OP_CLI_NOTES.md) — **read before changing** |
+| How the Ruby original mapped onto this | the Ruby → Go File Map below, and [`ruby-legacy/`](ruby-legacy/) |
+| Shipping several PRs as a batch | [`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md) |
+| What bit us before | **Gotchas & Lessons Learned**, at the end of this file |
+
+Shipping a body of work as several PRs? Read
+[`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md)
+first — it is the repo's stacked-PR workflow, and its central rule is that
+review feedback is **write-only until the whole batch is synthesised**. If you
+are looking at an open PR whose description carries a `## Batch` block, do not
+push fixes to it.
+
+Two rules that are easy to violate without noticing, both explained in
+`docs/ARCHITECTURE.md`:
+
+- **Nothing secret or unbounded may cross a workflow/activity boundary.**
+  Temporal records every activity result and workflow input in durable,
+  readable event history. Bundle read-transform-write into one activity and
+  return a count.
+- **Generated output is regenerated whole, never patched** — and this tool never
+  deletes files it did not just write.
+
 ## Repository Overview
 
 `workflow` is a Go + Temporal ETL pipeline: five workflows that discover, extract, transform, and
@@ -242,3 +280,90 @@ about `SyncWorkloads` risking Temporal's payload-size limit on a large enough so
   are deliberately pinned to versions known to be mutually compatible (`go mod tidy` alone can drift
   `go.temporal.io/api` ahead of what a given `go.temporal.io/server` release implements, which fails
   to compile with a missing-interface-method error). Don't `go get -u` these three independently.
+- **Plan before large changes**: for anything moderately or highly complex, propose an
+  implementation plan and get it reviewed before executing. Heading down the wrong architectural
+  path is far more expensive than the plan. (This repo has already paid for skipping it once - see
+  gotcha 6.)
+- **Batch work ships via the batch-review workflow**
+  ([`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md)): a stack of small
+  single-commit PRs, review feedback write-only until synthesis, reactive work in one followup PR.
+  - **Scope: this binds author-side agents only.** If you are writing code, fixing CI, or handling
+    feedback on a batch PR that is not the followup, a CI event or review comment is a ledger entry,
+    not a work order. Record it and stand down. The only interstitial showstopper is irreversible
+    loss on merge.
+  - **Automated reviewers (Copilot, Codex, etc.) are explicitly NOT in scope**: review every PR
+    fully and leave all findings as normal. Your comments are harvested and synthesised into the
+    followup; the absence of replies on an interstitial is the workflow operating as designed, not
+    your feedback being ignored.
+- **Keep the module docs current**: [`docs/modules/`](docs/modules/README.md) names real
+  identifiers and describes real invariants. When a change moves, renames, or invalidates one,
+  update the doc **in the same PR**. A module doc describing a boundary that no longer exists is
+  worse than none, because it is trusted.
+- **Log discovered work**: bugs, tech debt and follow-ups go in the Notion tracker, not in a PR
+  body or a code comment. Tasks data source `c0e96552-0a49-4311-8d51-8f5ad7ae86a8`, linked to the
+  project via the `Project` relation; set `Impact` and `Effort level`, and put the finding and
+  acceptance criteria in the body. A triage table in a PR body goes stale between rounds and
+  vanishes on merge.
+- **Destructive and outward-facing actions need explicit approval**, every time - deleting files,
+  vault items, branches or remote refs, and anything that writes to a real 1Password vault, AWS, or
+  Keycloak. Prepare the change and hand the destructive step to the operator rather than running it.
+  Approval for one instance is not approval for the next.
+- **Use the structured file tools** (read/edit/write) rather than `cat`, `sed` or shell here-docs
+  for reading and modifying repo files. Scope: this governs how an agent reads and edits files
+  during a session; committed scripts and pipelines processing command output use shell tools
+  freely.
+
+## Gotchas & Lessons Learned
+
+Things that have actually bitten, kept as a numbered list so it accretes. Add to it rather than
+rewriting it.
+
+1. **JSON numbers decode to `float64`.** Go's `encoding/json` does not remember that a number was
+   an integer. Round-trip a manifest and a Kubernetes port `80` becomes `80.0`; an ID above 2^53 is
+   rounded or rendered in scientific notation. Decode with `dec.UseNumber()`, or avoid the
+   round-trip entirely by keeping build-transform-render inside one activity. Regression-tested with
+   a 19-digit integer.
+
+2. **`fmt.Sprint(nil)` renders `<nil>`.** A JSON `null` decoded into `any` is a nil interface, and
+   printing it writes the literal string `<nil>` into what may be a real secret field. Ruby's
+   `value.to_s` produced an empty string; `stringify` preserves that. Regression-tested.
+
+3. **The Temporal dependency triple must move together.** `go.temporal.io/sdk`, `.../server` and
+   `.../api` are pinned mutually compatible. `go mod tidy` alone can drift `api` ahead of what
+   `server` implements, failing to compile with a missing-interface-method error. Never
+   `go get -u` them independently.
+
+4. **Event history is durable, readable, plaintext storage.** Every activity result and workflow
+   input is recorded, and in external mode persisted in Postgres and visible through the Web UI.
+   Moving a secret into a *narrower* activity does not help - if it is returned, it is in history.
+   Bundle the whole read-transform-write into one activity and return a count.
+
+5. **Multi-document YAML: only the first document is decoded.** A source file containing two
+   Services is rewritten with only the first. Shared with the Ruby original and untested there
+   either, so it is a parity-preserving limitation rather than a regression - but it is a real
+   data-loss path.
+
+6. **When reproducing a shell-out by hand, reproduce how the *program* invokes it.** `op` reads a
+   stdin template only when stdin is a pipe; a shell redirect (`< file`) is ignored silently, exit
+   0. Hand-testing with a redirect made working code look broken, and a "fix" was written and
+   tested before verification caught it - the fix would have broken the working call. Go's
+   `exec.Cmd` with an `io.Reader` gives the child a pipe.
+
+7. **`op` sessions expire mid-run**, and then *every* call fails with `authorization timeout`,
+   including read-only ones. `sync-1p` runs its vault write with retries disabled, so an expiry
+   partway through a multi-environment run leaves some environments written and others not.
+
+8. **`REPO_URL` and `DEST_DIR` name the workloads repo, not the GitOps repo.** Gotten wrong twice.
+   Both symptoms surface at ArgoCD sync time, well after the run that caused them reported success:
+   `sync` commits overlays where ArgoCD is not looking, and every generated Application points at a
+   path that does not exist.
+
+9. **A test that needs a real directory may not be doing file I/O.**
+   `TestLoad_ExpandsRelativePaths` uses `t.TempDir()` for two reasons, only one obvious: `os.Chdir`
+   needs a directory that exists, *and* chdir'ing somewhere empty stops `godotenv.Load()` picking up
+   a developer's real `.env` and overriding the test's environment. Removing the temp dir as
+   "unnecessary" would reintroduce a test that passes or fails depending on someone's local file.
+
+10. **Relative paths resolve against the worker's working directory, not yours.** Config is loaded
+    by an activity, which runs wherever the worker runs - a container with its own mounts in
+    external mode. A path that works from your shell can resolve to nothing on the worker.
