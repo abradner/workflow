@@ -23,7 +23,7 @@ func RunExternal[TIn, TOut any](ctx context.Context, hostPort string, logger log
 	}
 	defer c.Close()
 
-	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: TaskQueue}, workflowFn, input)
+	run, err := c.ExecuteWorkflow(ctx, StartOptions(), workflowFn, input)
 	if err != nil {
 		return zero, fmt.Errorf("starting workflow: %w", err)
 	}

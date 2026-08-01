@@ -37,6 +37,14 @@ services:
       - POSTGRES_USER=temporal
       - POSTGRES_PWD=temporal
       - POSTGRES_SEEDS=postgresql
+      # Completed workflow history is deleted after an hour. This is the
+      # shortest window the server accepts for a local namespace - zero is
+      # rejected as ambiguous with "keep forever", and 24h is the floor for
+      # replicated ones. External mode is where history is genuinely durable
+      # (Postgres, plus a Web UI to read it), so it is where the window matters.
+      #
+      # It shortens exposure; it does not remove it. See docs/ARCHITECTURE.md.
+      - DEFAULT_NAMESPACE_RETENTION=1h
     ports:
       - "7233:7233"
 
