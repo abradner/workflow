@@ -3,6 +3,7 @@ package awssecrets_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"strconv"
 	"testing"
 
@@ -94,4 +95,79 @@ func TestExtractSecrets_WalksEveryPage(t *testing.T) {
 	require.Len(t, secrets, 2)
 	assert.Equal(t, "dev3/wtf/config", secrets[0].Name)
 	assert.Equal(t, "dev3/wtf/cert", secrets[1].Name)
+}
+
+// exactClient serves GetSecretValue by name, so ExtractExact's error handling
+// can be exercised branch by branch. ListSecrets is never called.
+type exactClient struct {
+	values map[string]string
+	errs   map[string]error
+	got    []string
+}
+
+func (c *exactClient) ListSecrets(context.Context, *secretsmanager.ListSecretsInput, ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error) {
+	panic("ExtractExact must not call ListSecrets")
+}
+
+func (c *exactClient) GetSecretValue(_ context.Context, params *secretsmanager.GetSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+	name := aws.ToString(params.SecretId)
+	c.got = append(c.got, name)
+	if err, ok := c.errs[name]; ok {
+		return nil, err
+	}
+	return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(c.values[name])}, nil
+}
+
+func TestExtractExact_FetchesByNameWithoutListing(t *testing.T) {
+	client := &exactClient{values: map[string]string{
+		"dev/neons-dev-elasticache/pmn-dev3-ro": `{"username":"pmn-dev3-ro"}`,
+		"dev/neons-dev-elasticache/pmn-dev3-rw": `{"username":"pmn-dev3-rw"}`,
+	}}
+	svc := awssecrets.NewWithClient(client)
+
+	got, err := svc.ExtractExact(context.Background(), []string{
+		"dev/neons-dev-elasticache/pmn-dev3-ro",
+		"dev/neons-dev-elasticache/pmn-dev3-rw",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "dev/neons-dev-elasticache/pmn-dev3-ro", got[0].Name)
+	assert.JSONEq(t, `{"username":"pmn-dev3-ro"}`, *got[0].String)
+	assert.Len(t, client.got, 2, "one GetSecretValue per name, no listing")
+}
+
+// A genuinely absent secret is skipped: a fresh environment may not have every
+// peripheral secret yet, and one missing entry should not abort a migration.
+func TestExtractExact_SkipsSecretsThatDoNotExist(t *testing.T) {
+	client := &exactClient{
+		values: map[string]string{"present": "value"},
+		errs:   map[string]error{"absent": &types.ResourceNotFoundException{}},
+	}
+	svc := awssecrets.NewWithClient(client)
+
+	got, err := svc.ExtractExact(context.Background(), []string{"absent", "present"})
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "present", got[0].Name)
+}
+
+// Everything that is not a not-found is fatal. The Ruby original's blanket
+// rescue made an expired session indistinguishable from an absent secret, so a
+// completely broken run reported success having extracted nothing.
+func TestExtractExact_FailsLoudlyOnNonNotFoundErrors(t *testing.T) {
+	for name, awsErr := range map[string]error{
+		"access denied": &types.InvalidRequestException{Message: aws.String("access denied")},
+		"throttled":     errors.New("Throttling: rate exceeded"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &exactClient{errs: map[string]error{"boom": awsErr}}
+			svc := awssecrets.NewWithClient(client)
+
+			_, err := svc.ExtractExact(context.Background(), []string{"boom"})
+			require.Error(t, err, "must not be swallowed as a skipped secret")
+			assert.Contains(t, err.Error(), "boom")
+		})
+	}
 }

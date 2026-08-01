@@ -277,10 +277,15 @@ func (a *Activities) FetchSamlCredentials(ctx context.Context, in FetchSamlCrede
 type SyncEnvSecretsInput struct {
 	ProjectName string
 	VaultName   string
-	SourceEnv   string
-	TargetEnv   string
-	KCPublicKey string // "" means no fresh Keycloak key to inject
-	DryRun      bool
+
+	// ExactSecretNames are fetched by name in addition to the environment
+	// filter - see awssecrets.ExtractExact. Names only; no values cross this
+	// boundary.
+	ExactSecretNames []string
+	SourceEnv        string
+	TargetEnv        string
+	KCPublicKey      string // "" means no fresh Keycloak key to inject
+	DryRun           bool
 }
 
 type SyncEnvSecretsResult struct {
@@ -324,6 +329,18 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 	secrets, err := a.AWSSecrets.ExtractSecrets(ctx, in.SourceEnv)
 	if err != nil {
 		return SyncEnvSecretsResult{}, fmt.Errorf("extracting AWS secrets: %w", err)
+	}
+
+	// Secrets outside the environment naming convention, fetched by name.
+	// Merged with the environment extract, exact entries winning a collision:
+	// naming one explicitly is a deliberate act, and should beat whatever the
+	// filter happened to match.
+	if len(in.ExactSecretNames) > 0 {
+		exact, err := a.AWSSecrets.ExtractExact(ctx, in.ExactSecretNames)
+		if err != nil {
+			return SyncEnvSecretsResult{}, fmt.Errorf("extracting named AWS secrets: %w", err)
+		}
+		secrets = mergeSecrets(secrets, exact)
 	}
 
 	mapper := transformers.OnePasswordSamlKeyInjector{
@@ -506,4 +523,27 @@ func (a *Activities) RunKeycloakSetup(ctx context.Context, in RunKeycloakSetupIn
 		return RunKeycloakSetupResult{}, err
 	}
 	return RunKeycloakSetupResult{XML: descriptors.XML, B64: descriptors.B64}, nil
+}
+
+// mergeSecrets combines the environment-filtered extract with the
+// explicitly-named one, later entries winning by name. Order is preserved so
+// the rendered vault item stays stable run to run - a map would reshuffle it
+// and produce a meaningless diff every time.
+func mergeSecrets(base, override []domain.ExtractedSecret) []domain.ExtractedSecret {
+	index := make(map[string]int, len(base))
+	merged := make([]domain.ExtractedSecret, 0, len(base)+len(override))
+
+	for _, s := range base {
+		index[s.Name] = len(merged)
+		merged = append(merged, s)
+	}
+	for _, s := range override {
+		if at, seen := index[s.Name]; seen {
+			merged[at] = s
+			continue
+		}
+		index[s.Name] = len(merged)
+		merged = append(merged, s)
+	}
+	return merged
 }
