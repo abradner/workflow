@@ -1,5 +1,33 @@
 # Agent Onboarding: Workflow
 
+This is the canonical steering file for coding agents working in this repo.
+`CLAUDE.md` imports it rather than duplicating it, so there is one set of
+instructions rather than two that drift.
+
+## Start here
+
+This file covers layout, the workflow contract, and the working rules. For
+anything deeper, go to [docs/](docs/README.md) rather than reverse-engineering
+it from the code:
+
+| Question | Read |
+|---|---|
+| What is this system, and why is it shaped like this? | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| What does this package do, and what will bite me? | [docs/modules/](docs/modules/README.md) |
+| How do I run it / why did a run fail? | [docs/OPERATIONS.md](docs/OPERATIONS.md) |
+| I need the Go or Temporal concept explained | [docs/GO_NOTES.md](docs/GO_NOTES.md) |
+| I'm touching anything that shells out to `op` | [docs/OP_CLI_NOTES.md](docs/OP_CLI_NOTES.md) — **read before changing** |
+
+Two rules that are easy to violate without noticing, both explained in
+`docs/ARCHITECTURE.md`:
+
+- **Nothing secret or unbounded may cross a workflow/activity boundary.**
+  Temporal records every activity result and workflow input in durable,
+  readable event history. Bundle read-transform-write into one activity and
+  return a count.
+- **Generated output is regenerated whole, never patched** — and this tool never
+  deletes files it did not just write.
+
 ## Repository Overview
 
 `workflow` is a Go + Temporal ETL pipeline: five workflows that discover, extract, transform, and

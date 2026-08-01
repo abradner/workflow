@@ -20,7 +20,7 @@ Two further documents are narrower in scope:
   anything that shells out to `op`.
 
 At the repository root, [README.md](../README.md) is the short front door
-(what the five commands do, how to run one) and [AI_ONBOARDING.md](../AI_ONBOARDING.md)
+(what the five commands do, how to run one) and [AGENTS.md](../AGENTS.md)
 orients coding agents, including the Ruby→Go file map.
 
 ## The three levels

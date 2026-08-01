@@ -2,7 +2,7 @@
 
 **Why this doc exists**: this repo is a from-scratch Go+Temporal rebuild of a Ruby ETL/GitOps tool
 that used a hand-rolled `Runner`/`Orchestrator`/predicate framework (see `ruby-legacy/` for the
-frozen original, [AI_ONBOARDING.md](../AI_ONBOARDING.md#ruby--go-file-map) for the exact file-by-file
+frozen original, [AGENTS.md](../AGENTS.md#ruby--go-file-map) for the exact file-by-file
 map). The plan is to do the same kind of migration again later, on a different, real Ruby deploy
 tool at work. That tool isn't this tool - the domain, the orchestrators, the external services will
 all differ - but the *shape* of the migration won't. This doc pulls the reusable part out of the
@@ -90,7 +90,7 @@ A concrete order that worked here, general enough to repeat:
    which is the entire point of a real Temporal deployment - config (especially filesystem paths)
    must load inside a `LoadConfig`-style activity that every workflow calls first, never be loaded by
    whatever process merely *starts* the workflow and threaded in as workflow input. See the doc
-   comment on `activities.Activities.LoadConfig` in this repo, and §3 of `AI_ONBOARDING.md`'s
+   comment on `activities.Activities.LoadConfig` in this repo, and §3 of `AGENTS.md`'s
    "Architecture: Workflow Contract." This is easy to get wrong on a first pass (it was wrong here
    too, before a review caught it) because it works perfectly in any all-in-one-process test/demo
    setup and only breaks once client and worker are actually different machines.
@@ -147,7 +147,7 @@ A short decision list, expanded on in `docs/GO_NOTES.md`:
 
 ## 4. Gotchas worth re-reading before you hit them again
 
-These are documented in depth in `docs/GO_NOTES.md` and `AI_ONBOARDING.md`; summarized here as a
+These are documented in depth in `docs/GO_NOTES.md` and `AGENTS.md`; summarized here as a
 checklist to run through early in a new migration, before you rediscover each one the hard way:
 
 - [ ] **Workflow code must be deterministic** - no direct I/O, no reading the real clock, no ranging
