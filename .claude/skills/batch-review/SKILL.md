@@ -321,3 +321,133 @@ child**. If that happens: push the branch back from its last SHA, reopen, then
 retarget — no work is lost, but confirm state before continuing.
 
 The followup merges last, squash-and-merge.
+
+**There is no release phase in this repo.** CI builds and tests; nothing
+publishes an artefact from a tag or a push. A merge here really is the end of
+the line. (The source workflow had a Phase 8 that cut a release tag — omitted
+deliberately rather than forgotten, so nobody goes looking for a `bin/release-tag`
+that does not exist.)
+
+## Stacked flavour — deltas from the phases above
+
+Everything not listed here is unchanged: the policy phases apply as written.
+Write-only feedback, the self-review, the round cap, the showstopper bar and
+the Phase 7 operator gate are all identical. Only the branch and merge plumbing
+differs.
+
+**Status here.** This repo probes **stacked available** (2026-08) but has not
+yet run a stacked batch — every observation below is inherited from a sibling
+repo's empirical probe of the beta. **Re-verify the load-bearing ones on the
+first stacked batch here and update this section**, especially anything marked
+UNVERIFIED. Keep this branch of the workflow current even while running manual:
+`gh stack` is a preview feature and could be withdrawn, in which case the manual
+flavour is not a fallback but the only path.
+
+- **Fan-out (Phase 3).** Branch via the tooling: `gh stack init <b1>`, commit,
+  `gh stack add <b2>`, commit, … Use **virgin branch names** — `init`/`add`
+  silently adopt an existing local branch of the same name, stale base and all.
+  `gh stack submit --auto` opens the PRs **as drafts**: flip each ready
+  immediately (`gh pr ready <n>`) so Copilot's round and CI start. The Batch
+  block keeps its policy lines plus Flavour; Position, parent and roster render
+  natively in the stack badge, so there is no roster sweep and no PR-number
+  guessing.
+- **Worktree hazard.** Every trunk operation uses the *local* `main` ref. A
+  stale primary checkout makes `init` base branches on old history and makes
+  `rebase` report "✓ rebased onto main" without doing it. Keep the primary
+  checkout's `main` fast-forwarded and verify every claimed trunk rebase with
+  `git merge-base --is-ancestor origin/main <branch>` — trust the ancestry
+  check, never the ✓. **This repo is especially exposed**: the working style
+  here is several worktrees off one primary checkout, and that primary sat 21
+  commits behind `main` for most of one session.
+- **Bake (Phase 4).** Main moved: `gh stack rebase`, then push with `gh stack
+  submit` — **`gh stack sync` reports "✓ synced" without pushing rewritten
+  history.** Tool-managed restacks are the recorded exception to "never rebase
+  a reviewed branch": review threads were observed surviving cascade rebases
+  and re-anchoring to new SHAs. Spot-check `position != null` on threads
+  afterwards anyway — that observation is empirical, not contractual. A
+  showstopper fix propagates by amending the interstitial's commit, `gh stack
+  rebase`, `gh stack submit`, then verifying the fix **by content** on each
+  child.
+- **Followup (Phase 6).** Open it as an ordinary draft targeting `main`,
+  *outside* the stack object, and run the aggregate `@codex review` as written.
+  After harvesting: retarget to the cap, link it into the stack object, then
+  mark ready. The documented mechanism is `gh stack link <stack-number>
+  <branch-or-pr>...` (args bottom-to-top). Its behaviour on a live batch, and
+  what the stack merge button then does with a linked followup, are
+  **UNVERIFIED**. If linking misbehaves, don't fight it — leave the followup an
+  ordinary PR on the cap and finish with the manual Phase 7 choreography.
+- **Merge (Phase 7).** The operator gate becomes **platform-enforced**:
+  `gh pr merge` refuses stacked PRs and the merge control is the web UI's stack
+  button only, so the agent's merge phase reduces to verify-ready, report, stop.
+  "Squash and merge stack" lands one squash commit per PR, bottom-up — the
+  trade accepted at Phase 1. Do **not** use "Create a merge commit stack"
+  expecting per-PR merge boundaries: observed, it lands the raw commits under a
+  single wrapper merge of the *top* PR, every PR sharing one merge commit.
+- **Fallback.** If anything breaks mid-batch — extension vanished, stack API
+  errors, an operation misbehaves (a conflict prompt is not misbehaviour) —
+  degrade once, permanently, for that batch: `gh stack unstack` dissolves the
+  stack object, observed non-destructive (PRs stay open with correct bases,
+  branches intact). Then finish under the manual phases. `gh pr merge` works
+  again once the stack object is gone, which also means the platform's merge
+  block is gone: **the operator gate reverts to policy**, and binds exactly as
+  it always did.
+
+## Rules of thumb
+
+- **Probe the flavour first; record it in every Batch block; finish the batch
+  in the flavour it started.** The one exception is the mid-batch degrade,
+  stacked → manual via unstack — never the reverse.
+- **Self-review before fan-out.** One pointed question per branch, naming what
+  the change made newly risky. A finding caught there costs an amend; the same
+  finding after fan-out costs a round, and rounds introduce bugs.
+- Feedback is write-only until synthesis. No replies, no mid-stack pushes.
+- Interstitials get Copilot's one round on open. Codex is invocation-only and
+  aggregate-first: 2–3 invocations per batch, total.
+- Interstitials: one commit each, merge-committed. Followup: N commits,
+  squash-merged, release gate.
+- Merge `main` into a batch branch only when the world moved for reasons
+  outside the batch — then effective-diff audit afterwards.
+- Merge bottom-up. Never rebase a reviewed branch (manual flavour). Retarget
+  each child before deleting its parent's branch.
+- Phase 7 needs an explicit, per-batch go-ahead from the human operator — never
+  self-initiate the merge train, including under autonomous or auto-mode
+  operation.
+- Only the followup's CI gates the batch. Unexplained interstitial red is a
+  real signal.
+- The interstitial showstopper bar is irreversible loss on merge, nothing else.
+- Defer everything that isn't a showstopper and **write the deferral down as a
+  Notion task**, not a table in the PR body — the body goes stale between
+  rounds and vanishes on merge.
+- **Cap reactive rounds at three.** Past that, fix only genuine defects in
+  shipped behaviour and ticket the rest. If one small change draws three or
+  more findings, revert and ticket it rather than patching again.
+- **Never trust an aggregate review signal.** Verify by `commit_id`, open
+  Copilot's suppressed `<details>` block, read its "reviewed N out of M files"
+  count, and treat a new test that passes on its first run as unproven until
+  shown failing.
+
+## Where these rules came from
+
+Inherited from a batch in the source repo that ran seven reactive rounds with
+findings going **6 → 2 → 1 → 3 → 2 → 5** — not convergence. The fan-out worked:
+26 real findings across six interstitials, several of them data-loss bugs. The
+reactive tail did not: four of five later rounds found defects created by a
+*previous round's fix*, three tests written to prove fixes passed against
+unfixed code, and one eight-line change drew three defects before being
+reverted and ticketed.
+
+The through-line: **review is worth most before the work is published and
+progressively less after**, because every later finding is fixed under pressure
+against a stack that resists change. Hence the self-review phase, the round cap,
+and ticket-don't-patch.
+
+The economic half: the AI spends are all drained by the same event — a reactive
+round — so the round cap is the cost lever on all of them at once. That is also
+what split the bot roles: Copilot's per-PR review is cheap and empirically
+strong at mechanical bug classes, so it runs everywhere; Codex is quota-bound
+and strongest cross-file, so it is spent on the aggregate.
+
+This repo's own contribution so far is the Phase 2 example: a fix written
+against a misdiagnosis, where the verification that would have prevented it
+took one command. Add to this section rather than replacing it — the value is
+in the accumulated evidence, not in any single batch.
