@@ -3,32 +3,22 @@
 require 'spec_helper'
 require_relative '../../../app/workflow/transformers/one_password_saml_key_injector'
 
+require_relative '../../../app/domain/one_password/item'
+
 RSpec.describe Workflow::Transformers::OnePasswordSamlKeyInjector do
   let(:logger) { instance_double('Logger').as_null_object }
 
-  it 'maps environment names across secret strings and properties' do
-    mapper = described_class.new(source_env: 'dev4', target_env: 'dev5')
-    extracted = [
-      { name: 'dev4/pmn-config', string: 'conn=db.dev4.com', binary: nil }
-    ]
-
-    result = mapper.call(extracted)
-    
-    expect(result.first[:name]).to eq('dev5/pmn-config')
-    expect(result.first[:string]).to eq('conn=db.dev5.com')
-  end
-
   it 'injects the keycloak public key into valid JSON payloads if present' do
-    mapper = described_class.new(source_env: 'dev4', target_env: 'dev5', kc_public_key: 'fresh_key', logger: logger)
-    extracted = [
-      { name: 'dev4/pmn-ui-api-config', string: '{"mp.jwt.verify.publickey":"stale"}', binary: nil }
-    ]
+    mapper = described_class.new(kc_public_key: 'fresh_key', logger: logger)
+    domain_item = Domain::OnePassword::Item.new(title: 'k8s-dev4')
+    domain_item.upsert_field(section_id: 'pmn-ui-api-config', label: 'payload', value: '{"mp.jwt.verify.publickey":"stale"}', type: 'CONCEALED')
 
     expect(logger).to receive(:info).with(/Injected fresh/)
     
-    result = mapper.call(extracted)
+    mapper.call(domain_item)
     
-    payload = JSON.parse(result.first[:string])
+    field = domain_item.fields.first
+    payload = JSON.parse(field['value'])
     expect(payload['mp.jwt.verify.publickey']).to eq('fresh_key')
   end
 end

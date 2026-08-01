@@ -12,10 +12,23 @@ RSpec.describe ServiceClients::Op do
       mock_status = instance_double(Process::Status, success?: true)
 
       expect(Open3).to receive(:capture3)
-        .with('op item create -', stdin_data: template.to_json)
+        .with('op', 'item', 'create', '-', stdin_data: template.to_json)
         .and_return(['id=123', '', mock_status])
 
       expect(client.create_item(template)).to eq('id=123')
+    end
+  end
+
+  describe '#edit_item' do
+    it 'pipes JSON configuration to op item edit stdin' do
+      template = { title: 'my-item', category: 'SECURE_NOTE' }
+      mock_status = instance_double(Process::Status, success?: true)
+
+      expect(Open3).to receive(:capture3)
+        .with('op', 'item', 'edit', 'item-123', '-', stdin_data: template.to_json)
+        .and_return(['edited', '', mock_status])
+
+      expect(client.edit_item('item-123', template)).to eq('edited')
     end
   end
 end

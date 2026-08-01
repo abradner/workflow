@@ -7,6 +7,7 @@ class Config
   attr_reader :app_pattern, :project_name, :tld, :repo_url
   attr_reader :talos_item_id, :talos_template_dir
   attr_reader :registry_hostname, :registry_1p_item_id, :external_secrets_api_version
+  attr_reader :op_vault_name, :additional_aws_secrets
 
   def initialize
     # Source is the immutable read-only clone
@@ -39,5 +40,11 @@ class Config
 
     # Kubernetes API Versions (parametrised for easy upgrades)
     @external_secrets_api_version = 'external-secrets.io/v1'
+
+    # 1Password Operations Vault
+    @op_vault_name = ENV.fetch('OP_VAULT_NAME')
+
+    # AWS Secrets Extractor Config
+    @additional_aws_secrets = ENV.fetch('ADDITIONAL_EXACT_SECRETS', '').split(',').map { |s| s.gsub('#{source_env}', @source_env).strip }.reject(&:empty?)
   end
 end
