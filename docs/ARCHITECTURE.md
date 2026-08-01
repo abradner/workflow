@@ -11,9 +11,16 @@ a set of Kubernetes environments should look like, and writes that result into
 other repositories and systems.
 
 It is not a controller, an operator, or a service. It has no reconciliation
-loop, holds no state between runs, and nothing is deployed from it. Every run
-starts from the same inputs and produces the same outputs. The actual
+loop, holds no state between runs, and nothing is deployed from it. The actual
 convergence onto the cluster is ArgoCD's job, working from what this tool wrote.
+
+**Rendered files** are pure derivation: same configuration and same source in,
+byte-identical output out, regenerated whole every run. That does **not** extend
+to the workflows with external side effects. `sync-1p` currently *creates* a
+Secure Note rather than updating one, so a second run adds another item with a
+new ID; `setup-keycloak` acts against whatever state the target realm is
+already in. See [OPERATIONS.md](OPERATIONS.md) for which commands are safe to
+re-run.
 
 The unit of work is an **environment** (`dev4`, `dev5`) belonging to a
 **project** (`pmn`), containing **apps** (`pmn-ext-gw`, `pmn-core`). Namespaces

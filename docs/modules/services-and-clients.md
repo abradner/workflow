@@ -31,20 +31,24 @@ type Runner interface {
 
 Verified CLI behaviour that the code must respect:
 
-- **`--category` is mandatory on create.** The CLI does not read the `category`
-  field from the piped template; without the flag it errors and creates nothing.
-- **The trailing `-` is what makes it read stdin**, and it must come after the
-  flags. With `-` first, the CLI exits 0 and silently creates an empty
-  `Untitled` item.
-- **`op item edit <id> -` is a silent no-op** — exit 0, item version increments,
-  nothing changes.
+- **stdin is read only when it is a pipe.** A shell redirect (`< file`) is
+  ignored silently, exit 0. The trailing `-` is documented convention, not the
+  trigger. Go's `exec.Cmd` with an `io.Reader` gives the child a pipe, which is
+  the case that works — so reproducing an invocation by hand with a redirect
+  does *not* reproduce what this code does.
+- **The category comes from exactly one place** — the template's `category`
+  field *or* `--category`, never both; supplying both is an error. Our templates
+  always carry it, so `--category` must not be passed. Adding it looks like
+  defensive tidying and breaks a working call.
+- **Without `--vault`, items land in the account's personal vault.** We pass no
+  `--vault` today, so `sync-1p` writes wherever the operator's default is.
 - **Template edit is REPLACE, not merge.** A field omitted from the template is
   deleted. Preserving a field you are not modifying means sending it back
   verbatim; there is no passive option. Built-in fields like `notesPlain`
   survive omission.
 - **Not-found is exit 1 with stderr**, not empty output on exit 0.
-- **`--vault` is unnecessary when addressing by item ID** (IDs are globally
-  unique) but required for `create`, or the item lands in the default vault.
+- **`--vault` is unnecessary when addressing by item ID** — IDs are globally
+  unique — but matters for `create`, which has no ID yet.
 
 Templates go over **stdin, not `--template=<file>`**, because they carry every
 extracted secret value and a file would mean writing all of them to disk in
@@ -54,8 +58,14 @@ cleartext.
 
 The original tests asserted only that `CreateItem` produced
 `[]string{"item", "create", "-"}`, against a stub returning whatever the test
-wanted. They passed for the entire life of an invocation the CLI rejects
-outright — `sync-1p` could never have written to 1Password.
+wanted. That checks output handling but cannot distinguish a working invocation
+from a broken one — the stub would have said yes either way.
+
+It cut both ways. An investigation once concluded from hand-testing that this
+exact invocation was broken, and a "fix" was written adding `--category` — which
+the CLI rejects when the template already carries one. Neither the stub nor the
+proposed change would have caught it; only running the real binary the way Go
+runs it did.
 
 A fake that answers "yes" to any argument vector cannot catch an
 argument-vector bug. `internal/serviceclients/op/optest` therefore models the

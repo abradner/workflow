@@ -54,8 +54,9 @@ The category may be supplied *either* in the template's `category` field *or*
 via `--category`, **never both**:
 
 ```
-[ERROR] cannot provide the item category with both the JSON template and the
-`--category` flag - only specify the category in one location
+[ERROR] unable to process line 1: cannot provide the item category with both
+the JSON template and the `--category` flag - only specify the category in one
+location
 ```
 
 This tool's templates always carry `category`, so `--category` must **not** be

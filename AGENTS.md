@@ -295,6 +295,31 @@ about `SyncWorkloads` risking Temporal's payload-size limit on a large enough so
     fully and leave all findings as normal. Your comments are harvested and synthesised into the
     followup; the absence of replies on an interstitial is the workflow operating as designed, not
     your feedback being ignored.
+- **Evaluate review feedback on its merits — a finding is a claim, not a
+  verdict.** Reviewers, human and automated, are frequently right and
+  occasionally confidently wrong. Before acting on one:
+  - **Trace it to the code or reproduce it.** Fix only what you can verify.
+    Plausible-sounding claims about runtime behaviour are the ones most worth
+    checking, because they are the ones that read as obviously true.
+  - **Ask whether it is reachable.** A finding can be entirely correct about the
+    world and still irrelevant here, because our code cannot produce the input
+    it describes. Guarding an unreachable path costs maintenance and buys
+    nothing.
+  - **Check which end is wrong.** When a comment reports a contradiction between
+    code and documentation, the documentation is often the side to fix. Do not
+    assume the code is the defect because that is what the comment points at.
+  - **Weigh the context the reviewer had.** A bot reviewing one PR cannot see a
+    deliberate decision made three PRs earlier, or a constraint recorded in
+    `docs/`. Severity badges and assertive phrasing are formatting, not evidence.
+  - **Declining has to actually happen.** A round that accepts every finding is a
+    warning sign, not a good score — it usually means the review is being
+    deferred to rather than assessed. When declining, write the reason down where
+    the decision is auditable: the PR body, or the review thread.
+  - This applies to **your own conclusions too**, and most sharply there. The
+    worst error in this repo's history was self-generated: a confident
+    misdiagnosis that produced a "fix" for working code (gotcha 6). One
+    verification step would have caught it, and none was run because the
+    conclusion felt solid.
 - **Keep the module docs current**: [`docs/modules/`](docs/modules/README.md) names real
   identifiers and describes real invariants. When a change moves, renames, or invalidates one,
   update the doc **in the same PR**. A module doc describing a boundary that no longer exists is

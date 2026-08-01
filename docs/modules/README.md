@@ -65,6 +65,6 @@ doc:
    `float64`, which silently corrupts large integers and Kubernetes port
    numbers. → [manifest-and-transformers.md](manifest-and-transformers.md),
    [services-and-clients.md](services-and-clients.md)
-3. **The 1Password CLI** — argument-order sensitive, with failure modes that
-   exit 0. → [services-and-clients.md](services-and-clients.md) and
+3. **The 1Password CLI** — reads a stdin template only when stdin is a pipe,
+   and has failure modes that exit 0. → [services-and-clients.md](services-and-clients.md) and
    [OP_CLI_NOTES.md](../OP_CLI_NOTES.md)

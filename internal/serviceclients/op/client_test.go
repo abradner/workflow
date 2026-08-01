@@ -104,10 +104,14 @@ func TestCreateItem_SatisfiesTheRealCLIContract(t *testing.T) {
 		}},
 	}
 
-	id, err := client.CreateItem(context.Background(), template)
+	out, err := client.CreateItem(context.Background(), template)
 	require.NoError(t, err)
+	// The real CLI prints a human-readable block here, not a bare ID -- so the
+	// item is inspected via the fake's own record rather than by trusting
+	// CreateItem's return value to be an identifier.
+	assert.Contains(t, out, "ID:")
 
-	created := runner.Find(id)
+	created := runner.Last()
 	require.NotNil(t, created, "no item was created")
 	assert.Equal(t, "k8s-wtf-dev4", created.Title)
 	assert.Equal(t, "SECURE_NOTE", created.Category, "category comes from the template")
@@ -150,12 +154,83 @@ func TestCreateItem_WithoutVaultLandsInTheDefaultVault(t *testing.T) {
 	runner := &optest.Runner{}
 	client := op.NewWithRunner(runner)
 
-	id, err := client.CreateItem(context.Background(),
+	_, err := client.CreateItem(context.Background(),
 		map[string]any{"title": "k8s-wtf-dev4", "category": "SECURE_NOTE"})
 	require.NoError(t, err)
 
-	created := runner.Find(id)
+	created := runner.Last()
 	require.NotNil(t, created)
 	assert.Equal(t, optest.DefaultVault, created.Vault,
 		"no --vault is passed today, so items land in the personal vault")
+}
+
+// A typo'd flag must fail, not be silently recorded and ignored. Without this
+// the fake would happily accept an invocation the real CLI rejects -- the exact
+// hole this package exists to close.
+func TestContractFake_RejectsUnknownFlag(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--catgory", "Secure Note", "-"},
+		[]byte(`{"title":"x"}`))
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "unknown flag: --catgory")
+	assert.Empty(t, runner.Items)
+}
+
+// A value-taking flag with nothing after it is a missing-argument error, not a
+// boolean true.
+func TestContractFake_RejectsValuelessFlag(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--vault"}, []byte(`{"title":"x","category":"SECURE_NOTE"}`))
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "flag needs an argument: --vault")
+	assert.Empty(t, runner.Items)
+}
+
+// --dry-run previews without creating. A production regression that started
+// passing it would otherwise pass a test asserting an item was created, while
+// the real CLI wrote nothing.
+func TestContractFake_DryRunCreatesNothing(t *testing.T) {
+	runner := &optest.Runner{}
+
+	out, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--dry-run", "-"},
+		[]byte(`{"title":"k8s-wtf-dev4","category":"SECURE_NOTE"}`))
+
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.Contains(t, out, "k8s-wtf-dev4", "the preview still describes the item")
+	assert.Empty(t, runner.Items, "--dry-run must not record an item")
+}
+
+// --template is not modelled, so it must be rejected rather than accepted and
+// silently ignored by create().
+func TestContractFake_RejectsUnmodelledTemplateFlag(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--template=item.json"}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "unknown flag: --template")
+}
+
+// `--vault=` is a missing argument, not an empty value: accepting it would read
+// downstream as "not provided" and fall back to a default the real CLI would
+// never have reached.
+func TestContractFake_RejectsEmptyInlineFlagValue(t *testing.T) {
+	runner := &optest.Runner{}
+
+	_, stderr, err := runner.Run(context.Background(), "op",
+		[]string{"item", "create", "--vault=", "-"},
+		[]byte(`{"title":"x","category":"SECURE_NOTE"}`))
+
+	require.Error(t, err)
+	assert.Contains(t, stderr, "flag needs an argument: --vault")
+	assert.Empty(t, runner.Items)
 }

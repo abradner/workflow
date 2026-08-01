@@ -108,8 +108,25 @@ stacked the default: the beta's observed merge modes cannot produce per-PR
 merge commits, so a stacked batch lands its interstitials squash-merged.
 **Put that trade to the operator before fan-out; never assume it.**
 
-Record the flavour in each PR's Batch block. **A batch finishes in the flavour
-it started.**
+Record the flavour in each PR's Batch block. **A batch normally finishes in the
+flavour it started**, and stacked → manual via `gh stack unstack` is the routine
+mid-batch transition.
+
+**The reverse is permitted for one specific reason**, added after batch
+`op-contract-docs` (#5–#7) took it: the manual flavour's payoff is a merge commit
+wrapping *exactly one* reviewed commit, so once an interstitial has grown to
+several commits that payoff is already gone and the stacked squash train is
+strictly easier to merge. Switching then costs nothing and buys a cleaner train.
+
+Adopt existing PRs with **`gh stack link <branch|pr>...`** (bottom to top), not
+`gh stack init --adopt`: `link` operates GitHub-side, uses the open PRs as they
+are, and needs no local tracking state — so branch SHAs are untouched and
+existing review context survives. Verify afterwards that each PR's base is
+unchanged and no branch was rewritten. Then update every Batch block: flavour,
+the reason, and the fact that merging is now the web UI stack button.
+
+Do not take this transition to escape a problem — that is what the one-way
+degrade is for. Take it only when the multi-commit condition genuinely holds.
 
 ## Phase 2 — Self-review, before any PR opens
 
@@ -216,13 +233,37 @@ otherwise read as human reviews at the current SHA.
 Add your own aggregate review: cross-PR interactions, sibling inconsistency
 (the same problem solved two ways), and gaps *adjacent* to a PR's purpose.
 
-Triage on merit, remembering bots only had per-PR context:
+Triage on merit. **A finding is a claim, not a verdict** — the synthesis is
+where that judgement gets made, and it is the whole reason feedback is held
+until this point rather than acted on as it arrives.
 
 - **Claims about runtime behaviour**: verify against the code. Fix only what you
   can trace or reproduce.
+- **Ask whether the finding is reachable.** It can be correct about the external
+  world and still irrelevant, because this codebase cannot produce the input it
+  describes. Guarding an unreachable path costs maintenance and buys nothing.
+  *(Batch `op-contract-docs`: a reviewer correctly noted the real CLI rejects
+  unknown item categories, but the category our client sends is a constant in
+  its own template map — modelling it would have meant maintaining an allowlist
+  to guard a path that cannot be taken. Declined.)*
+- **Check which end is wrong.** When a comment reports code and documentation
+  disagreeing, the documentation is often the side to fix. *(Same batch: a
+  reviewer flagged the fake's error string as not matching the notes. The fake
+  was right; the notes had dropped a prefix.)*
+- **Read what the finding actually supports.** A comment can be correct that
+  wording is misleading without being correct that the underlying rule is wrong.
+  Fix the wording, not the rule. *(Same batch: a reviewer noted the
+  config-loading invariant appeared to condemn two existing child-workflow
+  inputs. The invariant was right; its phrasing invited an unnecessary
+  refactor.)*
+- **Weigh the context the reviewer had.** A bot reviewing one PR cannot see a
+  decision made three PRs earlier. Severity badges and assertive phrasing are
+  formatting, not evidence.
 - **Comments re-litigating deliberate design**: mark not-relevant with a
   one-line reason. **This branch must actually fire sometimes** — a synthesis
-  that accepts 100% of findings is a warning sign, not a success metric.
+  that accepts 100% of findings is a warning sign, not a success metric. The
+  sharpest recorded failure of this workflow was an all-accepted streak in which
+  a reviewer citing a convention talked a deliberate safeguard out of the design.
 
 ## Phase 6 — The followup PR
 

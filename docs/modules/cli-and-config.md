@@ -60,7 +60,12 @@ resolves them against a filesystem where they mean nothing.
 
 Consequences worth internalising:
 
-- No workflow `Input` struct carries a `Config`. Adding one reintroduces the bug.
+- **No *top-level* workflow input carries a `Config`** — that is the case that
+  reintroduces the bug, because a top-level input is populated by the CLI
+  client. A parent passing its own worker-loaded `Config` down to a child is a
+  different thing and is fine: `SyncAppInput.Config` and
+  `SetupKeycloakEnvInput.Config` both do exactly that. The rule is about *where
+  the value was loaded*, not about the field existing.
 - Relative paths resolve against the **worker's** working directory.
 - In external mode only the worker needs `.env`.
 
