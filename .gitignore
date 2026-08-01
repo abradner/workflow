@@ -1,2 +1,16 @@
 .env
+.env.*
 coverage/
+
+# Local extraction/debug dumps. These hold decrypted AWS Secrets Manager
+# payloads in plaintext and must never be committed.
+.aws_secrets_dump.json
+*.secrets.json
+
+# Local clones of the source/workloads repo, kept alongside for convenience
+pmn-kustomize/
+*-workloads/
+
+# Editor / IDE
+.idea/
+.vscode/

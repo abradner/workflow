@@ -5,7 +5,7 @@ module Workflow
   # Holds configuration and memoized results.
   class ExecutionContext
     attr_reader :config, :logger, :options
-    attr_accessor :apps, :prompt, :saml_credentials_by_env
+    attr_accessor :apps, :prompt, :saml_credentials_by_env, :one_password_items, :extracted_aws_secrets
 
     # @param config [Config] application configuration
     # @param logger [ColorizedLogger] logger instance
@@ -16,6 +16,8 @@ module Workflow
       @options = options
       @apps = []
       @saml_credentials_by_env = {}
+      @one_password_items = {}
+      @extracted_aws_secrets = nil
     end
 
     # ─── Predicate Checks (used by Runner for hydration) ────────
@@ -28,6 +30,15 @@ module Workflow
     # @return [Boolean] true if SAML Credentials have been extracted
     def saml_credentials_extracted?
       !saml_credentials_by_env.empty?
+    end
+
+    def one_password_items_hydrated?
+      !one_password_items.empty?
+    end
+
+    # @return [Boolean] true if AWS secrets have been extracted
+    def aws_secrets_extracted?
+      !extracted_aws_secrets.nil?
     end
 
     # ─── Option Accessors ───────────────────────────────────────

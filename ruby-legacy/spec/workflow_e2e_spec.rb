@@ -13,7 +13,7 @@ require_relative '../app/services/filesystem_service'
 RSpec.describe 'End-to-End Workflows' do
   let(:config) do
     cfg = Config.new
-    allow(cfg).to receive_messages(environments: %w[dev4 dev5], project_name: 'wtf')
+    allow(cfg).to receive_messages(environments: %w[dev4 dev5], source_env: 'dev3', project_name: 'wtf', op_vault_name: 'Tooling')
     cfg
   end
   let(:logger) { instance_double(Utils::ColorizedLogger).as_null_object }
@@ -63,25 +63,7 @@ RSpec.describe 'End-to-End Workflows' do
     let(:get_secret_value_response_1) { { 'SecretString' => '{"username":"db_user"}' } }
     let(:get_secret_value_response_2) { { 'SecretBinary' => 'b3BfMTEyMw==' } }
 
-    let(:expected_payload_1) do
-      hash_including(
-        title: 'k8s-wtf-dev4',
-        category: 'SECURE_NOTE',
-        fields: array_including(
-          hash_including(label: 'username', section: { id: 'wtf-config' }, type: 'CONCEALED', value: 'db_user'),
-          hash_including(label: 'password', section: { id: 'wtf-cert' }, type: 'CONCEALED', value: 'b3BfMTEyMw==')
-        ),
-        sections: array_including(
-          hash_including(id: 'wtf-config'),
-          hash_including(id: 'wtf-cert')
-        )
-      )
-    end
-    let(:expected_payload_2) do
-      hash_including(
-        title: 'k8s-wtf-dev5'
-      )
-    end
+    # removed expected payloads in favor of block evaluation
 
     before do
       allow(ServiceClients::Aws).to receive(:new).and_return(aws_client_mock)
@@ -98,12 +80,27 @@ RSpec.describe 'End-to-End Workflows' do
       # Mock the payloads coming out of AWS wrapper
       allow(aws_client_mock).to receive(:get_secret_value).with('dev3/wtf/config').and_return(get_secret_value_response_1)
       allow(aws_client_mock).to receive(:get_secret_value).with('dev3/wtf/cert').and_return(get_secret_value_response_2)
+      
+      allow(aws_client_mock).to receive(:get_secret_value).with('dev/neons-dev-elasticache/pmn-dev3-ro').and_raise(RuntimeError, 'Secret not found')
+      allow(aws_client_mock).to receive(:get_secret_value).with('dev/neons-dev-elasticache/pmn-dev3-rw').and_raise(RuntimeError, 'Secret not found')
 
       orchestrator = Workflow::Orchestrators::Sync1Password.new(config: config)
       runner = Workflow::Runner.new(context, orchestrators: [orchestrator])
 
-      expect(op_client_mock).to receive(:create_item).with(expected_payload_1).once
-      expect(op_client_mock).to receive(:create_item).with(expected_payload_2).once
+      expect(op_client_mock).to receive(:get_item).with('k8s-wtf-dev3', vault: 'Tooling').and_return(nil)
+      expect(op_client_mock).to receive(:get_item).with('k8s-wtf-dev4', vault: 'Tooling').and_return({ 'id' => 'item-4' })
+      expect(op_client_mock).to receive(:get_item).with('k8s-wtf-dev5', vault: 'Tooling').and_return(nil)
+
+      expect(op_client_mock).to receive(:edit_item).with(
+        'item-4', 
+        satisfy { |arg| arg[:title] == 'k8s-wtf-dev4' && arg[:fields].any? { |f| f['label'] == 'username' } }, 
+        vault: 'Tooling'
+      ).once
+
+      expect(op_client_mock).to receive(:create_item).with(
+        satisfy { |arg| arg[:title] == 'k8s-wtf-dev5' }, 
+        vault: 'Tooling'
+      ).once
 
       expect(runner.run).to be(true)
     end

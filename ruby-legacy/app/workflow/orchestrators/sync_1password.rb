@@ -2,57 +2,72 @@
 
 require_relative '../orchestrator'
 require_relative '../../services/aws_secrets_service'
-require_relative '../../services/one_password_service'
+require_relative '../../services/one_password_commit_service'
+require_relative '../transformers/one_password_item_mapper'
+require_relative '../transformers/one_password_environment_replacer'
 require_relative '../transformers/one_password_saml_key_injector'
 
 module Workflow
   module Orchestrators
     class Sync1Password < Orchestrator
       needs :saml_credentials_extracted
+      needs :aws_secrets_extracted
+      needs :one_password_items_hydrated
 
       def initialize(config:)
         super
         @project_name = config.project_name
         @aws_service = Services::AwsSecretsService.new
-        @op_service = Services::OnePasswordService.new(project_name: @project_name)
+        @op_commit_service = Services::OnePasswordCommitService.new
       end
 
-      # Not reliant on app discovery
       def act_phase(context)
         source_env = @config.source_env
         envs = @config.environments
 
-        context.logger.info "Will extract AWS secrets for environment #{source_env}"
-
-        extracted_secrets = @aws_service.extract_secrets(source_env)
-
-        context.logger.info "Extracted #{extracted_secrets.count} secrets from AWS."
+        extracted_secrets = context.extracted_aws_secrets
+        
         context.logger.info "Will map 1Password Items for environments: #{envs.join(', ')}"
         
-        @mapped_vault_items = {}
+        # 1. Transform raw extracted secrets directly into the domain object representing the vault state
+        mapper = Transformers::OnePasswordItemMapper.new
         
         envs.each do |env|
-          kc_public_key = context.saml_credentials_by_env[env]&.pem_public_key
+          mapper.call(
+            env: env, 
+            extracted_secrets: extracted_secrets, 
+            domain_items_map: context.one_password_items,
+            logger: context.logger
+          )
           
-          mapper = Transformers::OnePasswordSamlKeyInjector.new(
+          # 2. Translate environment variables natively inside the mapped Domain fields
+          env_replacer = Transformers::OnePasswordEnvironmentReplacer.new(
             source_env: source_env,
             target_env: env,
+            logger: context.logger
+          )
+          
+          env_replacer.call(context.one_password_items[env])
+          
+          # 3. Inject dynamically generated payload overrides where applicable
+          kc_public_key = context.saml_credentials_by_env[env]&.pem_public_key
+          
+          saml_injector = Transformers::OnePasswordSamlKeyInjector.new(
             kc_public_key: kc_public_key,
             logger: context.logger
           )
           
-          @mapped_vault_items[env] = mapper.call(extracted_secrets)
+          saml_injector.call(context.one_password_items[env])
         end
       end
 
       def commit_phase(context)
-        # Push to 1Password for each target env
+        # Push cleanly built, natively tracked domain objects to the vault
         @config.environments.each do |env|
-          context.logger.info "Pushing 1Password Vault Item: k8s-#{@project_name}-#{env} ..."
+          domain_item = context.one_password_items[env]
+          next unless domain_item
 
-          # We pass env explicitly so 1PassService creates one single Item per target env securely
-          @op_service.ingest_vault_item(env, @mapped_vault_items[env])
-
+          @op_commit_service.commit(domain_item)
           context.logger.info "Created k8s-#{@project_name}-#{env} successfully!"
         end
       end
