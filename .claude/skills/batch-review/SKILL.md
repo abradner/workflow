@@ -233,13 +233,37 @@ otherwise read as human reviews at the current SHA.
 Add your own aggregate review: cross-PR interactions, sibling inconsistency
 (the same problem solved two ways), and gaps *adjacent* to a PR's purpose.
 
-Triage on merit, remembering bots only had per-PR context:
+Triage on merit. **A finding is a claim, not a verdict** — the synthesis is
+where that judgement gets made, and it is the whole reason feedback is held
+until this point rather than acted on as it arrives.
 
 - **Claims about runtime behaviour**: verify against the code. Fix only what you
   can trace or reproduce.
+- **Ask whether the finding is reachable.** It can be correct about the external
+  world and still irrelevant, because this codebase cannot produce the input it
+  describes. Guarding an unreachable path costs maintenance and buys nothing.
+  *(Batch `op-contract-docs`: a reviewer correctly noted the real CLI rejects
+  unknown item categories, but the category our client sends is a constant in
+  its own template map — modelling it would have meant maintaining an allowlist
+  to guard a path that cannot be taken. Declined.)*
+- **Check which end is wrong.** When a comment reports code and documentation
+  disagreeing, the documentation is often the side to fix. *(Same batch: a
+  reviewer flagged the fake's error string as not matching the notes. The fake
+  was right; the notes had dropped a prefix.)*
+- **Read what the finding actually supports.** A comment can be correct that
+  wording is misleading without being correct that the underlying rule is wrong.
+  Fix the wording, not the rule. *(Same batch: a reviewer noted the
+  config-loading invariant appeared to condemn two existing child-workflow
+  inputs. The invariant was right; its phrasing invited an unnecessary
+  refactor.)*
+- **Weigh the context the reviewer had.** A bot reviewing one PR cannot see a
+  decision made three PRs earlier. Severity badges and assertive phrasing are
+  formatting, not evidence.
 - **Comments re-litigating deliberate design**: mark not-relevant with a
   one-line reason. **This branch must actually fire sometimes** — a synthesis
-  that accepts 100% of findings is a warning sign, not a success metric.
+  that accepts 100% of findings is a warning sign, not a success metric. The
+  sharpest recorded failure of this workflow was an all-accepted streak in which
+  a reviewer citing a convention talked a deliberate safeguard out of the design.
 
 ## Phase 6 — The followup PR
 
