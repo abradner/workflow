@@ -77,14 +77,32 @@ go build -o workflow ./cmd/workflow
 |---|---|---|
 | `sync` | `DEST_DIR` | Yes — regenerates whole files |
 | `setup-argo` | `CLUSTER_APPS_DIR` | Yes — regenerates the ApplicationSet |
-| `sync-1p` | 1Password | **No** — see below |
+| `sync-1p` | 1Password | Yes — reads the item, amends it, writes it back |
+| `prune-1p` | 1Password | Yes, but **destructive** — see below |
 | `render-talos` | `TALOS_TEMPLATE_DIR` | Yes |
 | `setup-keycloak` | Keycloak, `DEST_DIR` | Mostly — creation tolerates 409 Conflict |
 
-**`sync-1p` is the one to be careful with.** It currently creates a Secure Note
-per environment rather than updating an existing one, and its 1Password write
-runs with retries disabled because that write is not safe to repeat. Read
-[OP_CLI_NOTES.md](OP_CLI_NOTES.md) before running it.
+**`sync-1p` reads before it writes.** It loads each environment's Secure Note,
+updates the fields it produces, and writes the whole item back — preserving
+1Password's own field IDs, and preserving any field it did not write. Re-running
+it is safe. Its write still runs with retries disabled, because a partially
+applied vault write is not something to repeat blindly.
+
+**`prune-1p` is the one to be careful with.** It runs the same sync and then
+**deletes** every field in the item that the sync did not write: fields added by
+hand, and fields left behind by AWS secrets that no longer exist.
+
+It is a separate command rather than a `--prune` flag on `sync-1p` on purpose. A
+flag is one keystroke away from a routine sync; a separate verb has to be
+chosen. Before running it:
+
+1. Run `sync-1p --verbose`. It logs how many stale fields each environment has.
+2. Open the vault and look at what those fields are. The tool reports counts,
+   not names — field labels sit close enough to the secrets themselves that
+   naming them in Temporal's event history would undo the secret-boundary work
+   (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+3. Only then decide. **Deletion is not recoverable through this tool.**
+   1Password's own item history is the recovery path, not this.
 
 ### Suggested order for a new environment
 

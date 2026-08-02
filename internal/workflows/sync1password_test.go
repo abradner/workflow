@@ -163,3 +163,52 @@ func TestSync1PasswordWorkflow_DryRunDoesNotRequireAVault(t *testing.T) {
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
 }
+
+// prune-1p is the only way fields get deleted, and it is a separate command
+// rather than a flag precisely so it cannot happen by accident. This asserts
+// the flag actually reaches the activity that acts on it.
+func TestSync1PasswordWorkflow_PruneReachesTheActivity(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
+	a := &activities.Activities{}
+
+	cfg := config.Config{SourceEnv: "dev3", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", OPVaultName: "Tooling"}
+	mockLoadConfig(env, a, cfg)
+	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
+		Return(activities.FetchSamlCredentialsResult{}, nil)
+
+	var got activities.SyncEnvSecretsInput
+	env.OnActivity(a.SyncEnvSecrets, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { got = args.Get(1).(activities.SyncEnvSecretsInput) }).
+		Return(activities.SyncEnvSecretsResult{SecretsExtracted: 1, StaleFields: 2}, nil)
+
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{Prune: true})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	assert.True(t, got.Prune, "prune-1p must reach the activity that deletes")
+}
+
+// The default must stay non-destructive: nothing infers pruning.
+func TestSync1PasswordWorkflow_DoesNotPruneByDefault(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(workflows.Sync1PasswordEnvWorkflow)
+	a := &activities.Activities{}
+
+	cfg := config.Config{SourceEnv: "dev3", Environments: []string{"dev4"}, ProjectName: "pmn", TLD: "f-ck.xyz", OPVaultName: "Tooling"}
+	mockLoadConfig(env, a, cfg)
+	env.OnActivity(a.FetchSamlCredentials, mock.Anything, mock.Anything).
+		Return(activities.FetchSamlCredentialsResult{}, nil)
+
+	var got activities.SyncEnvSecretsInput
+	env.OnActivity(a.SyncEnvSecrets, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { got = args.Get(1).(activities.SyncEnvSecretsInput) }).
+		Return(activities.SyncEnvSecretsResult{SecretsExtracted: 1}, nil)
+
+	env.ExecuteWorkflow(workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{})
+
+	require.True(t, env.IsWorkflowCompleted())
+	assert.False(t, got.Prune, "sync-1p must never delete")
+}

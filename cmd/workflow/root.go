@@ -45,6 +45,7 @@ func newRootCmd() *cobra.Command {
 		newSyncCmd(opts),
 		newSetupArgoCmd(opts),
 		newSync1PasswordCmd(opts),
+		newPrune1PasswordCmd(opts),
 		newRenderTalosCmd(opts),
 		newSetupKeycloakCmd(opts),
 		newWorkerCmd(opts),

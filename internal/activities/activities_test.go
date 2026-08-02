@@ -437,3 +437,28 @@ func TestSyncEnvSecrets_PreservesAndCountsStaleFields(t *testing.T) {
 	}
 	assert.True(t, kept, "sync-1p must not delete what it did not write")
 }
+
+// With Prune set, a field the vault holds that this run did not write is
+// removed. This is the only path in the tool that deletes vault data.
+func TestSyncEnvSecrets_PruneRemovesStaleFields(t *testing.T) {
+	runner := &optest.Runner{}
+	runner.Add(&optest.Item{
+		ID: "existing", Title: "k8s-pmn-dev4", Category: "SECURE_NOTE", Vault: "Tooling",
+		Fields: []any{map[string]any{
+			"id": "hand-added", "section": map[string]any{"id": "manual"},
+			"label": "added-by-a-human", "value": "delete me", "type": "CONCEALED",
+		}},
+	})
+	a := newSyncSecretsActivities(runner)
+
+	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
+		VaultName: "Tooling", ProjectName: "pmn",
+		SourceEnv: "dev3", TargetEnv: "dev4", KCPublicKey: "fresh_key",
+		Prune: true,
+	})
+
+	assert.Equal(t, 1, result.StaleFields)
+	for _, f := range fieldsFrom(t, runner) {
+		assert.NotEqual(t, "hand-added", f["id"], "prune must remove the stale field")
+	}
+}

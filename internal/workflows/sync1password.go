@@ -12,6 +12,11 @@ import (
 // Sync1PasswordInput is the `sync-1p` command's workflow input.
 type Sync1PasswordInput struct {
 	DryRun bool
+
+	// Prune deletes vault fields this run did not write, instead of merely
+	// reporting them. Set only by the `prune-1p` command - sync-1p never
+	// enables it, and nothing infers it.
+	Prune bool
 }
 
 // Sync1PasswordResult summarizes what the workflow did.
@@ -75,6 +80,7 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 			ProjectName:  cfg.ProjectName,
 			VaultName:    cfg.OPVaultName,
 			ExactSecrets: cfg.AdditionalExactSecrets,
+			Prune:        in.Prune,
 			SourceEnv:    cfg.SourceEnv,
 			TargetEnv:    env,
 			TLD:          cfg.TLD,
@@ -111,6 +117,7 @@ type Sync1PasswordEnvInput struct {
 	ProjectName  string
 	VaultName    string
 	ExactSecrets []string
+	Prune        bool
 	SourceEnv    string
 	TargetEnv    string
 	TLD          string
@@ -155,6 +162,7 @@ func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) (S
 		ProjectName:      in.ProjectName,
 		VaultName:        in.VaultName,
 		ExactSecretNames: in.ExactSecrets,
+		Prune:            in.Prune,
 		SourceEnv:        in.SourceEnv,
 		TargetEnv:        in.TargetEnv,
 		KCPublicKey:      kcPublicKey,
