@@ -19,7 +19,13 @@ it from the code:
 | I'm touching anything that shells out to `op` | [docs/OP_CLI_NOTES.md](docs/OP_CLI_NOTES.md) — **read before changing** |
 | How the Ruby original mapped onto this | the Ruby → Go File Map below, and [`ruby-legacy/`](ruby-legacy/) |
 | Shipping several PRs as a batch | [`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md) |
+| Reviewing local commits before pushing | [`.claude/skills/independent-commit-review/SKILL.md`](.claude/skills/independent-commit-review/SKILL.md) |
 | What bit us before | **Gotchas & Lessons Learned**, at the end of this file |
+
+About to push a batch of local commits? Read
+[`.claude/skills/independent-commit-review/SKILL.md`](.claude/skills/independent-commit-review/SKILL.md)
+first — fresh-eyes review per commit, with every fix proven by watching its test
+fail before it passes. Cheaper before the PRs exist than after.
 
 Shipping a body of work as several PRs? Read
 [`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md)
