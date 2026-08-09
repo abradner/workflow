@@ -2,7 +2,6 @@ package activities_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +16,7 @@ import (
 	"github.com/abradner/workflow/internal/activities"
 	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/serviceclients/op"
+	"github.com/abradner/workflow/internal/serviceclients/op/optest"
 	"github.com/abradner/workflow/internal/services/awssecrets"
 	"github.com/abradner/workflow/internal/services/filesystem"
 )
@@ -173,34 +173,29 @@ func (fakeSecretsClient) GetSecretValue(_ context.Context, _ *secretsmanager.Get
 	}, nil
 }
 
-// fakeOpRunner captures the JSON payload piped to `op item create -`
-// instead of running the real CLI.
-type fakeOpRunner struct {
-	lastPayload map[string]any
-}
-
-func (f *fakeOpRunner) Run(_ context.Context, _ string, _ []string, stdin []byte) (string, string, error) {
-	if err := json.Unmarshal(stdin, &f.lastPayload); err != nil {
-		return "", "", err
-	}
-	return "op_item_id", "", nil
-}
-
-func newSyncSecretsActivities(runner *fakeOpRunner) *activities.Activities {
+// newSyncSecretsActivities wires SyncEnvSecrets against the contract fake
+// rather than a permissive stub. The upsert reads before it writes, so the
+// fake has to behave like a vault - answer a get with what a create stored,
+// and reject an edit payload the real CLI would reject - or the test proves
+// nothing about the round trip it exists to exercise.
+func newSyncSecretsActivities(runner *optest.Runner) *activities.Activities {
 	return &activities.Activities{
 		AWSSecrets:  awssecrets.NewWithClient(fakeSecretsClient{}),
 		OnePassword: op.NewWithRunner(runner),
 	}
 }
 
-func fieldsFrom(t *testing.T, payload map[string]any) []map[string]any {
+// fieldsFrom reads the fields of the single item the fake vault holds.
+func fieldsFrom(t *testing.T, runner *optest.Runner) []map[string]any {
 	t.Helper()
-	raw, ok := payload["fields"].([]any)
-	require.True(t, ok, "payload has no fields array: %#v", payload)
+	item := runner.Last()
+	require.NotNil(t, item, "nothing was written to the vault")
 
-	fields := make([]map[string]any, len(raw))
-	for i, f := range raw {
-		fields[i] = f.(map[string]any)
+	fields := make([]map[string]any, 0, len(item.Fields))
+	for _, f := range item.Fields {
+		m, ok := f.(map[string]any)
+		require.True(t, ok, "unexpected field shape: %#v", f)
+		fields = append(fields, m)
 	}
 	return fields
 }
@@ -230,7 +225,7 @@ func executeSyncEnvSecrets(t *testing.T, a *activities.Activities, in activities
 // - only runs inside this activity now, so it needs its own coverage here
 // rather than at the workflow level.
 func TestSyncEnvSecrets_InjectsFreshKeycloakPublicKey(t *testing.T) {
-	runner := &fakeOpRunner{}
+	runner := &optest.Runner{}
 	a := newSyncSecretsActivities(runner)
 
 	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
@@ -242,7 +237,7 @@ func TestSyncEnvSecrets_InjectsFreshKeycloakPublicKey(t *testing.T) {
 	})
 	assert.Equal(t, 1, result.SecretsExtracted)
 
-	fields := fieldsFrom(t, runner.lastPayload)
+	fields := fieldsFrom(t, runner)
 	require.Len(t, fields, 1)
 	assert.Equal(t, "mp.jwt.verify.publickey", fields[0]["label"])
 	assert.Equal(t, "fresh_key", fields[0]["value"], "fresh Keycloak key must be injected")
@@ -252,7 +247,7 @@ func TestSyncEnvSecrets_InjectsFreshKeycloakPublicKey(t *testing.T) {
 // KCPublicKey == "" (no reachable Keycloak for that environment) must leave
 // the extracted value untouched rather than injecting an empty string.
 func TestSyncEnvSecrets_LeavesValueAloneWithNoFreshKey(t *testing.T) {
-	runner := &fakeOpRunner{}
+	runner := &optest.Runner{}
 	a := newSyncSecretsActivities(runner)
 
 	executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
@@ -263,7 +258,7 @@ func TestSyncEnvSecrets_LeavesValueAloneWithNoFreshKey(t *testing.T) {
 		KCPublicKey: "",
 	})
 
-	fields := fieldsFrom(t, runner.lastPayload)
+	fields := fieldsFrom(t, runner)
 	require.Len(t, fields, 1)
 	assert.Equal(t, "stale", fields[0]["value"], "no fresh key available, so the extracted value is left alone")
 }
@@ -272,7 +267,7 @@ func TestSyncEnvSecrets_LeavesValueAloneWithNoFreshKey(t *testing.T) {
 // maps (so SecretsExtracted is accurate) but never calls the 1Password
 // client at all.
 func TestSyncEnvSecrets_DryRunSkipsIngestion(t *testing.T) {
-	runner := &fakeOpRunner{}
+	runner := &optest.Runner{}
 	a := newSyncSecretsActivities(runner)
 
 	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
@@ -283,7 +278,8 @@ func TestSyncEnvSecrets_DryRunSkipsIngestion(t *testing.T) {
 		DryRun:      true,
 	})
 	assert.Equal(t, 1, result.SecretsExtracted)
-	assert.Nil(t, runner.lastPayload, "DryRun must never call the 1Password client")
+	assert.Empty(t, runner.Items, "DryRun must never call the 1Password client")
+	assert.Empty(t, runner.Calls, "not even a read")
 }
 
 // fakeOpNoteRunner serves a fixed Secure Note body for `op item get`,
@@ -384,4 +380,60 @@ func TestWriteFiles_CreatesDirectoriesAndWritesContent(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dir, "a/b/c.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, "kind: Foo\n", string(got))
+}
+
+// The upsert's defining property: a second run against an existing item edits
+// it in place, preserving the vault's own field IDs, rather than creating a
+// second item beside it.
+func TestSyncEnvSecrets_UpsertsInsteadOfCreatingASecondItem(t *testing.T) {
+	runner := &optest.Runner{}
+	a := newSyncSecretsActivities(runner)
+	in := activities.SyncEnvSecretsInput{
+		VaultName: "Tooling", ProjectName: "pmn",
+		SourceEnv: "dev3", TargetEnv: "dev4", KCPublicKey: "fresh_key",
+	}
+
+	first := executeSyncEnvSecrets(t, a, in)
+	assert.True(t, first.ItemCreated, "first run has nothing to update")
+	require.Len(t, runner.Items, 1)
+	idAfterCreate := runner.Items[0].ID
+	fieldIDAfterCreate := fieldsFrom(t, runner)[0]["id"]
+
+	second := executeSyncEnvSecrets(t, a, in)
+	assert.False(t, second.ItemCreated, "second run must edit, not create")
+	require.Len(t, runner.Items, 1, "a second item beside the first is the bug this replaces")
+	assert.Equal(t, idAfterCreate, runner.Items[0].ID)
+	assert.Equal(t, fieldIDAfterCreate, fieldsFrom(t, runner)[0]["id"],
+		"the vault's field ID must survive the update")
+}
+
+// A field the vault holds that this run did not write is preserved and
+// counted. Under op item edit's REPLACE semantics, omitting it would delete it.
+func TestSyncEnvSecrets_PreservesAndCountsStaleFields(t *testing.T) {
+	runner := &optest.Runner{}
+	runner.Add(&optest.Item{
+		ID: "existing", Title: "k8s-pmn-dev4", Category: "SECURE_NOTE", Vault: "Tooling",
+		Fields: []any{map[string]any{
+			"id": "hand-added", "section": map[string]any{"id": "manual"},
+			"label": "added-by-a-human", "value": "keep me", "type": "CONCEALED",
+		}},
+	})
+	a := newSyncSecretsActivities(runner)
+
+	result := executeSyncEnvSecrets(t, a, activities.SyncEnvSecretsInput{
+		VaultName: "Tooling", ProjectName: "pmn",
+		SourceEnv: "dev3", TargetEnv: "dev4", KCPublicKey: "fresh_key",
+	})
+
+	assert.False(t, result.ItemCreated)
+	assert.Equal(t, 1, result.StaleFields)
+
+	var kept bool
+	for _, f := range fieldsFrom(t, runner) {
+		if f["id"] == "hand-added" {
+			kept = true
+			assert.Equal(t, "keep me", f["value"])
+		}
+	}
+	assert.True(t, kept, "sync-1p must not delete what it did not write")
 }

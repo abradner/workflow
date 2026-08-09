@@ -15,49 +15,44 @@ type Logger interface {
 	Info(msg string, keyvals ...any)
 }
 
-// OnePasswordSamlKeyInjector remaps AWS secret names/values extracted for
-// SourceEnv onto TargetEnv, and - if a fresh Keycloak public key is
-// available - patches it into any JSON secret payload that carries an
-// "mp.jwt.verify.publickey" field.
+// OnePasswordSamlKeyInjector patches a freshly-fetched Keycloak public key
+// into any JSON secret payload carrying an "mp.jwt.verify.publickey" field.
+//
+// It used to remap SourceEnv onto TargetEnv as well. That job now belongs to
+// OnePasswordItemMapper, which has to do it anyway to compute the section ID -
+// doing it in both places meant the same substitution ran twice, and put the
+// remap in a type whose name says nothing about it.
+//
+// Note what it does NOT do when no key is available: it leaves the payload
+// alone, which means the value read from the *source* environment survives
+// into the target's vault item. That is a stale key wearing the right label,
+// not an absent one, and it is why sync-1p's ordering matters - see
+// docs/OPERATIONS.md.
 type OnePasswordSamlKeyInjector struct {
-	SourceEnv   string
-	TargetEnv   string
 	KCPublicKey string // "" means no fresh key to inject
 	Logger      Logger // nil is fine, logging is best-effort
 }
 
-// Call maps every extracted secret from SourceEnv to TargetEnv.
+// Call returns secrets with the public key patched into any payload carrying
+// the field. Everything else is passed through untouched.
 func (t OnePasswordSamlKeyInjector) Call(secrets []domain.ExtractedSecret) []domain.ExtractedSecret {
 	out := make([]domain.ExtractedSecret, len(secrets))
 
 	for i, secret := range secrets {
-		mappedString := t.remapString(secret.String)
+		out[i] = secret
 
-		if t.KCPublicKey != "" && mappedString != nil {
-			if injected, ok := t.injectPublicKey(*mappedString); ok {
-				mappedString = &injected
-				if t.Logger != nil {
-					t.Logger.Info(fmt.Sprintf("Injected fresh Keycloak public key into %s", secret.Name))
-				}
-			}
+		if t.KCPublicKey == "" || secret.String == nil {
+			continue
 		}
-
-		out[i] = domain.ExtractedSecret{
-			Name:   strings.ReplaceAll(secret.Name, t.SourceEnv, t.TargetEnv),
-			String: mappedString,
-			Binary: secret.Binary,
+		if injected, ok := t.injectPublicKey(*secret.String); ok {
+			out[i].String = &injected
+			if t.Logger != nil {
+				t.Logger.Info(fmt.Sprintf("Injected fresh Keycloak public key into %s", secret.Name))
+			}
 		}
 	}
 
 	return out
-}
-
-func (t OnePasswordSamlKeyInjector) remapString(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	mapped := strings.ReplaceAll(*s, t.SourceEnv, t.TargetEnv)
-	return &mapped
 }
 
 // injectPublicKey patches mappedString's "mp.jwt.verify.publickey" field if
