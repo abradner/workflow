@@ -113,15 +113,35 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 
 // Sync1PasswordEnvInput is one environment's share of Sync1PasswordWorkflow's
 // work - the unit Sync1PasswordWorkflow fans out over.
+//
+// This struct is serialized into Temporal event history as a child-workflow
+// input, so **the field NAMES are wire format**. Renaming one is a versioning
+// event: the name is the JSON key, and a child started by a previous release
+// decodes the old key into the zero value when a new worker picks it up.
+//
+// The tempting dismissal is that such a run simply fails and gets re-run. It
+// does not fail. It succeeds, with the field empty - and for ExactSecretNames
+// that is silent data loss: the named secrets are never fetched, so their vault
+// fields are not written this run, so they are classified stale, so `prune-1p`
+// DELETES them. A benign-looking rename plus a destructive command is how a
+// vault loses the ElastiCache credentials nobody realised were at risk.
+//
+// Hence the json tags below. They pin the wire names to what earlier releases
+// wrote, so the Go name can say what the field holds without the wire name
+// moving underneath a run already in flight. Do not "tidy" them away: the tag
+// and the field name differing IS the point.
 type Sync1PasswordEnvInput struct {
-	ProjectName      string
-	VaultName        string
-	ExactSecretNames []string
-	Prune            bool
-	SourceEnv        string
-	TargetEnv        string
-	TLD              string
-	DryRun           bool
+	ProjectName string
+	VaultName   string
+
+	// Wire name kept as the pre-rename "ExactSecrets" - see the type comment.
+	ExactSecretNames []string `json:"ExactSecrets"`
+
+	Prune     bool
+	SourceEnv string
+	TargetEnv string
+	TLD       string
+	DryRun    bool
 }
 
 // Sync1PasswordEnvResult summarizes what Sync1PasswordEnvWorkflow did for

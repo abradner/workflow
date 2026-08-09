@@ -12,6 +12,11 @@ import (
 
 func strPtr(s string) *string { return &s }
 
+// A constant is enough: these tests care that a new field gets a non-empty ID,
+// never what it is. NewFieldID is required rather than defaulted - see the
+// mapper's comment on why an empty-ID fallback would be worse than a panic.
+func testFieldID() string { return "generated-field-id" }
+
 func fieldsOf(t *testing.T, item *domain.OnePasswordItem) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -38,7 +43,7 @@ func TestOnePasswordItemMapper_RemapsNameBeforeSanitizing(t *testing.T) {
 	}
 	item := domain.WrapOnePasswordItem(existing)
 
-	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4"}.Call(item,
+	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4", NewFieldID: testFieldID}.Call(item,
 		[]domain.ExtractedSecret{{
 			Name:   "dev/dev3_pmn_keycloak/dev3_pmn_keycloak",
 			String: strPtr(`{"username":"dev3_pmn_keycloak"}`),
@@ -56,7 +61,7 @@ func TestOnePasswordItemMapper_RemapsNameBeforeSanitizing(t *testing.T) {
 func TestOnePasswordItemMapper_SpreadsJSONObjectsIntoFields(t *testing.T) {
 	item := domain.NewOnePasswordItem("k8s-pmn-dev4", "SECURE_NOTE")
 
-	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4"}.Call(item,
+	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4", NewFieldID: testFieldID}.Call(item,
 		[]domain.ExtractedSecret{{
 			Name:   "dev3/pmn/config",
 			String: strPtr(`{"username":"dev3_user","password":"p@ss","port":5432}`),
@@ -71,7 +76,7 @@ func TestOnePasswordItemMapper_SpreadsJSONObjectsIntoFields(t *testing.T) {
 func TestOnePasswordItemMapper_OpaqueStringBecomesPassword(t *testing.T) {
 	item := domain.NewOnePasswordItem("k8s-pmn-dev4", "SECURE_NOTE")
 
-	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4"}.Call(item,
+	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4", NewFieldID: testFieldID}.Call(item,
 		[]domain.ExtractedSecret{{Name: "dev3/pmn/keystore", String: strPtr("not json at all")}})
 
 	assert.Equal(t, "not json at all", fieldsOf(t, item)["pmn-keystore/password"])
@@ -83,7 +88,7 @@ func TestOnePasswordItemMapper_DoesNotRemapBinaryPayloads(t *testing.T) {
 	item := domain.NewOnePasswordItem("k8s-pmn-dev4", "SECURE_NOTE")
 	blob := "ZGV2MyBpbnNpZGUgYmFzZTY0"
 
-	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4"}.Call(item,
+	transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4", NewFieldID: testFieldID}.Call(item,
 		[]domain.ExtractedSecret{{Name: "dev3/pmn/keystore", Binary: &blob}})
 
 	assert.Equal(t, blob, fieldsOf(t, item)["pmn-keystore/password"])
@@ -93,7 +98,7 @@ func TestOnePasswordItemMapper_DoesNotRemapBinaryPayloads(t *testing.T) {
 // source->target, and a target value contains no source string to rewrite.
 func TestOnePasswordItemMapper_IsIdempotent(t *testing.T) {
 	item := domain.NewOnePasswordItem("k8s-pmn-dev4", "SECURE_NOTE")
-	mapper := transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4"}
+	mapper := transformers.OnePasswordItemMapper{SourceEnv: "dev3", TargetEnv: "dev4", NewFieldID: testFieldID}
 	secrets := []domain.ExtractedSecret{{
 		Name: "dev3/pmn/config", String: strPtr(`{"username":"dev3_user"}`),
 	}}

@@ -35,13 +35,13 @@ func (t OnePasswordItemMapper) Call(item *domain.OnePasswordItem, secrets []doma
 		return
 	}
 
+	// No nil guard on NewFieldID, deliberately. The obvious defensive move -
+	// falling back to a generator returning "" - is worse than the panic it
+	// avoids: StaleFieldIDs skips fields with an empty ID, so every field
+	// created that way becomes permanently invisible to stale tracking, which
+	// is the whole basis of prune-1p. A nil generator is a wiring bug; it
+	// should fail at the first test run, loudly, not degrade a feature quietly.
 	newFieldID := t.NewFieldID
-	if newFieldID == nil {
-		// An empty ID is what the domain model already falls back to, and the
-		// CLI assigns its own. Better than panicking on a nil func in a
-		// transformer that is otherwise total.
-		newFieldID = func() string { return "" }
-	}
 
 	for _, secret := range secrets {
 		sectionID := sanitizeSectionID(t.remap(secret.Name))
