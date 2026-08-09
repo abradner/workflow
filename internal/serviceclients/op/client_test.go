@@ -251,3 +251,78 @@ func TestContractFake_RejectsEmptyInlineFlagValue(t *testing.T) {
 	assert.Contains(t, stderr, "flag needs an argument: --vault")
 	assert.Empty(t, runner.Items)
 }
+
+func TestGetItem_ReturnsNilForAMissingItem(t *testing.T) {
+	runner := &optest.Runner{}
+	client := op.NewWithRunner(runner)
+
+	item, err := client.GetItem(context.Background(), "k8s-wtf-dev4", "Tooling")
+
+	require.NoError(t, err, "a miss is not an error: sync-1p needs it to mean create")
+	assert.Nil(t, item)
+}
+
+func TestGetItem_ReturnsTheStoredItem(t *testing.T) {
+	runner := &optest.Runner{}
+	runner.Add(&optest.Item{
+		ID: "abc123", Title: "k8s-wtf-dev4", Category: "SECURE_NOTE", Vault: "Tooling",
+		Fields: []any{map[string]any{"id": "f-1", "label": "username", "value": "wtf_dev4"}},
+	})
+	client := op.NewWithRunner(runner)
+
+	item, err := client.GetItem(context.Background(), "k8s-wtf-dev4", "Tooling")
+	require.NoError(t, err)
+	require.NotNil(t, item)
+
+	assert.Equal(t, "abc123", item["id"])
+	// Present because op item edit validates them on the way back.
+	assert.Contains(t, item, "updated_at")
+	assert.Contains(t, item, "version")
+}
+
+// The flow the upsert depends on: what GetItem returns must be acceptable to
+// EditItem unchanged. A model that drops id or updated_at fails here.
+func TestGetThenEdit_RoundTripsWithoutReassembly(t *testing.T) {
+	runner := &optest.Runner{}
+	runner.Add(&optest.Item{
+		ID: "abc123", Title: "k8s-wtf-dev4", Category: "SECURE_NOTE", Vault: "Tooling",
+		Fields: []any{map[string]any{"id": "f-1", "label": "username", "value": "old"}},
+	})
+	client := op.NewWithRunner(runner)
+
+	item, err := client.GetItem(context.Background(), "k8s-wtf-dev4", "Tooling")
+	require.NoError(t, err)
+
+	item["fields"] = []any{map[string]any{"id": "f-1", "label": "username", "value": "new"}}
+
+	_, err = client.EditItem(context.Background(), "abc123", item, "Tooling")
+	require.NoError(t, err)
+
+	stored := runner.Find("abc123")
+	require.Len(t, stored.Fields, 1)
+	assert.Equal(t, "new", stored.Fields[0].(map[string]any)["value"])
+}
+
+// A hand-assembled payload is rejected, exactly as the real CLI rejects it.
+// This is the Ruby to_h shape: title, category, sections, fields and no more.
+func TestEditItem_RejectsAPayloadThatWasNotRoundTripped(t *testing.T) {
+	runner := &optest.Runner{}
+	runner.Add(&optest.Item{ID: "abc123", Title: "k8s-wtf-dev4", Category: "SECURE_NOTE", Vault: "Tooling"})
+	client := op.NewWithRunner(runner)
+
+	_, err := client.EditItem(context.Background(), "abc123", map[string]any{
+		"title": "k8s-wtf-dev4", "category": "SECURE_NOTE",
+		"sections": []any{}, "fields": []any{},
+	}, "Tooling")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "updatedAt")
+}
+
+func TestEditItem_RefusesEmptyID(t *testing.T) {
+	client := op.NewWithRunner(&optest.Runner{})
+
+	_, err := client.EditItem(context.Background(), "", map[string]any{"id": "x"}, "Tooling")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no ID")
+}
