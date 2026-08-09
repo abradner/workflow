@@ -1,6 +1,7 @@
 package workflows_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -211,4 +212,27 @@ func TestSync1PasswordWorkflow_DoesNotPruneByDefault(t *testing.T) {
 
 	require.True(t, env.IsWorkflowCompleted())
 	assert.False(t, got.Prune, "sync-1p must never delete")
+}
+
+// Regression for a silent-data-loss path: Sync1PasswordEnvInput is serialized
+// into Temporal history, so its field NAMES are wire format. Renaming
+// ExactSecrets to ExactSecretNames without pinning the wire name meant a child
+// started by a previous release would decode it as empty, skip those secrets,
+// classify their vault fields stale, and let prune-1p delete them.
+//
+// It does not fail loudly - that was the assumption that made this look
+// acceptable. It succeeds with the field empty.
+func TestSync1PasswordEnvInput_WireNamesAreStable(t *testing.T) {
+	// A payload as an earlier release recorded it.
+	recorded := []byte(`{
+		"ProjectName":"pmn","VaultName":"Tooling",
+		"ExactSecrets":["dev/cache/pmn-dev3-ro"],
+		"SourceEnv":"dev3","TargetEnv":"dev4"
+	}`)
+
+	var in workflows.Sync1PasswordEnvInput
+	require.NoError(t, json.Unmarshal(recorded, &in))
+
+	assert.Equal(t, []string{"dev/cache/pmn-dev3-ro"}, in.ExactSecretNames,
+		"history written before the rename must still decode; empty here means prune-1p deletes those fields")
 }

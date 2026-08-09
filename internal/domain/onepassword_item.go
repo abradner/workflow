@@ -109,6 +109,12 @@ func (i *OnePasswordItem) UnknownTopLevelKeys() []string {
 // nondeterministic call in workflow code breaks Temporal replay. Pushing the
 // impurity out to the caller is what keeps that guarantee true rather than
 // merely claimed.
+//
+// newFieldID must be non-nil, and is deliberately NOT defaulted: a generator
+// returning "" would be worse than the panic it avoids. StaleFieldIDs skips
+// fields with an empty ID, so every field minted that way would be permanently
+// invisible to stale tracking - silently disabling the basis of prune-1p. A nil
+// generator is a wiring bug and should behave like one.
 func (i *OnePasswordItem) UpsertField(sectionID, label, value, fieldType string, newFieldID func() string) {
 	i.ensureSection(sectionID)
 
