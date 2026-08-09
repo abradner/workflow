@@ -153,6 +153,12 @@ So buy review early, not more of it:
 
 Do not skip this because the change looks small.
 
+**For a batch big enough to justify it, the strong form of this phase is
+[`independent-commit-review`](../independent-commit-review/SKILL.md)** - one
+fresh subagent per commit, with revert-and-confirm on every fix. Run it before
+`gh stack init`, never after anything is pushed: it rewrites history, and doing
+that under a live review destroys the anchors reviewers commented against.
+
 **A worked example from this repo.** A `sync-1p` investigation concluded
 `op item create` was broken and a fix was written adding `--category`. The
 diagnosis came from hand-testing with a shell redirect (`< file.json`), which
