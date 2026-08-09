@@ -171,3 +171,40 @@ func TestExtractExact_FailsLoudlyOnNonNotFoundErrors(t *testing.T) {
 		})
 	}
 }
+
+// recordingLogger captures what the service said it skipped.
+type recordingLogger struct{ msgs []string }
+
+func (l *recordingLogger) Info(msg string, _ ...any) { l.msgs = append(l.msgs, msg) }
+
+// The regression test for a bug that shipped: the service had an exported
+// Logger field production never set, so this warning existed only in the docs.
+func TestExtractExact_ActuallyWarnsWhenSkipping(t *testing.T) {
+	client := &exactClient{errs: map[string]error{"absent": &types.ResourceNotFoundException{}}}
+	logger := &recordingLogger{}
+	svc := awssecrets.NewWithClient(client).WithLogger(logger)
+
+	_, err := svc.ExtractExact(context.Background(), []string{"absent"})
+	require.NoError(t, err)
+
+	require.Len(t, logger.msgs, 1, "a skipped secret must be reported, not swallowed")
+	assert.Contains(t, logger.msgs[0], "absent")
+}
+
+// WithLogger copies rather than mutating: Activities shares one *Service
+// across concurrent activity executions, so a setter would race the fan-out.
+func TestWithLogger_DoesNotMutateTheSharedService(t *testing.T) {
+	shared := awssecrets.NewWithClient(&exactClient{
+		errs: map[string]error{"absent": &types.ResourceNotFoundException{}},
+	})
+
+	first := shared.WithLogger(&recordingLogger{})
+	second := shared.WithLogger(&recordingLogger{})
+
+	assert.NotSame(t, shared, first, "WithLogger must return a copy")
+	assert.NotSame(t, first, second, "each caller gets its own")
+
+	// The shared instance still has no logger, so it stays silent.
+	_, err := shared.ExtractExact(context.Background(), []string{"absent"})
+	require.NoError(t, err)
+}

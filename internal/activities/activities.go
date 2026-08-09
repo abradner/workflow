@@ -350,7 +350,10 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 	// naming one explicitly is a deliberate act, and should beat whatever the
 	// filter happened to match.
 	if len(in.ExactSecretNames) > 0 {
-		exact, err := a.AWSSecrets.ExtractExact(ctx, in.ExactSecretNames)
+		// WithLogger returns a copy: Activities is shared across concurrent
+		// activity executions, so attaching a logger to the shared service
+		// would race across the per-environment fan-out.
+		exact, err := a.AWSSecrets.WithLogger(activity.GetLogger(ctx)).ExtractExact(ctx, in.ExactSecretNames)
 		if err != nil {
 			return SyncEnvSecretsResult{}, fmt.Errorf("extracting named AWS secrets: %w", err)
 		}
