@@ -109,3 +109,45 @@ func TestLoad_ExpandsRelativePaths(t *testing.T) {
 	assert.True(t, filepath.IsAbs(cfg.SourceDir))
 	assert.Equal(t, filepath.Join(dir, "relative-source"), cfg.SourceDir)
 }
+
+func TestLoad_ExpandsAdditionalExactSecrets(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	setEnv(t, map[string]string{
+		"SOURCE_DIR": dir, "DEST_DIR": dir, "CLUSTER_APPS_DIR": dir, "TALOS_TEMPLATE_DIR": dir,
+		"SOURCE_ENV": "dev3", "TARGET_ENVS": "dev4", "APP_PATTERN": "wtf-*",
+		"PROJECT_NAME": "wtf", "TLD": "f-ck.xyz", "REPO_URL": "https://example.com/repo.git",
+		"REGISTRY_HOSTNAME": "cr.infra.fqdn", "REGISTRY_1P_ITEM_ID": "12345",
+		// trailing empty entry and surrounding spaces are both realistic
+		"ADDITIONAL_EXACT_SECRETS": " dev/cache/pmn-{{source_env}}-ro , dev/cache/pmn-{{source_env}}-rw ,",
+	})
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dev/cache/pmn-dev3-ro", "dev/cache/pmn-dev3-rw"}, cfg.AdditionalExactSecrets)
+}
+
+func TestLoad_AdditionalExactSecretsIsOptional(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	setEnv(t, map[string]string{
+		"SOURCE_DIR": dir, "DEST_DIR": dir, "CLUSTER_APPS_DIR": dir, "TALOS_TEMPLATE_DIR": dir,
+		"SOURCE_ENV": "dev3", "TARGET_ENVS": "dev4", "APP_PATTERN": "wtf-*",
+		"PROJECT_NAME": "wtf", "TLD": "f-ck.xyz", "REPO_URL": "https://example.com/repo.git",
+		"REGISTRY_HOSTNAME": "cr.infra.fqdn", "REGISTRY_1P_ITEM_ID": "12345",
+	})
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.AdditionalExactSecrets)
+}

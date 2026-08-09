@@ -6,6 +6,7 @@ package awssecrets
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,9 +23,18 @@ type Client interface {
 	GetSecretValue(ctx context.Context, params *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 }
 
+// Logger is the minimal logging interface this service accepts, satisfied by
+// activity.GetLogger(ctx) and by any stand-in used in tests.
+type Logger interface {
+	Info(msg string, keyvals ...any)
+}
+
 // Service extracts secrets from AWS Secrets Manager.
 type Service struct {
 	client Client
+
+	// Logger is optional; nil disables the skipped-secret warnings.
+	Logger Logger
 }
 
 // New builds a Service using the ambient AWS credential chain (env vars,
@@ -88,4 +98,53 @@ func (s *Service) ExtractSecrets(ctx context.Context, env string) ([]domain.Extr
 	}
 
 	return secrets, nil
+}
+
+// ExtractExact fetches secrets by exact name, bypassing the name filter
+// ExtractSecrets uses.
+//
+// Some secrets do not follow the environment naming convention and so are
+// invisible to that filter - the ElastiCache credentials at
+// "dev/neons-dev-elasticache/pmn-<env>-ro" being the live example. Without
+// this they are simply absent from the migrated vault item, silently.
+//
+// A secret that genuinely does not exist is skipped with a warning: a fresh
+// environment legitimately may not have every peripheral secret yet, and one
+// missing entry should not abort a migration. Every OTHER error - credentials,
+// permissions, throttling - is returned. That distinction matters more than it
+// looks: the Ruby original wrapped this in a blanket `rescue RuntimeError`, so
+// an expired session or a missing IAM permission produced the same silent skip
+// as a genuinely absent secret, and a completely broken run reported success
+// with zero exact secrets extracted.
+func (s *Service) ExtractExact(ctx context.Context, names []string) ([]domain.ExtractedSecret, error) {
+	secrets := make([]domain.ExtractedSecret, 0, len(names))
+
+	for _, name := range names {
+		valueOut, err := s.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(name)})
+		if err != nil {
+			var notFound *types.ResourceNotFoundException
+			if errors.As(err, &notFound) {
+				s.logf("AWS secret %s not found, skipping", name)
+				continue
+			}
+			return nil, fmt.Errorf("fetching AWS secret %s: %w", name, err)
+		}
+
+		secret := domain.ExtractedSecret{Name: name, String: valueOut.SecretString}
+		if valueOut.SecretBinary != nil {
+			encoded := base64.StdEncoding.EncodeToString(valueOut.SecretBinary)
+			secret.Binary = &encoded
+		}
+		secrets = append(secrets, secret)
+	}
+
+	return secrets, nil
+}
+
+// logf reports a skipped secret. Nil-safe so the service stays usable without
+// a logger; a skipped secret is worth saying out loud but never fatal.
+func (s *Service) logf(format string, args ...any) {
+	if s.Logger != nil {
+		s.Logger.Info(fmt.Sprintf(format, args...))
+	}
 }

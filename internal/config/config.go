@@ -42,6 +42,17 @@ type Config struct {
 	// ClusterAppsDir lives in.
 	RepoURL string `env:"REPO_URL,required"`
 
+	// AdditionalExactSecrets names AWS secrets that do not follow the
+	// environment naming convention and so are invisible to the name filter
+	// ExtractSecrets uses. Each entry may contain the placeholder
+	// "{{source_env}}", expanded from SourceEnv by Load.
+	//
+	// The Ruby original used a literal '#{source_env}' inside single quotes -
+	// a Ruby interpolation that deliberately does not interpolate, which reads
+	// as a bug every time someone new sees it. An explicit placeholder costs
+	// nothing and survives being copied into a shell.
+	AdditionalExactSecrets []string `env:"ADDITIONAL_EXACT_SECRETS" envSeparator:","`
+
 	// OPVaultName is the 1Password vault sync-1p writes its per-environment
 	// Secure Notes into. Deliberately NOT `required`: only sync-1p needs it,
 	// and making it mandatory here would fail `sync`, `setup-argo` and
@@ -61,6 +72,10 @@ type Config struct {
 	// sourced from the environment, set below.
 	ExternalSecretsAPIVersion string `env:"-"`
 }
+
+// sourceEnvPlaceholder is substituted with Config.SourceEnv in every
+// ADDITIONAL_EXACT_SECRETS entry.
+const sourceEnvPlaceholder = "{{source_env}}"
 
 // Load reads Config from the environment, loading a .env file first if one
 // exists (missing is fine - same as the original tool's dotenv/load).
@@ -84,6 +99,17 @@ func Load() (*Config, error) {
 	for i, e := range cfg.Environments {
 		cfg.Environments[i] = strings.TrimSpace(e)
 	}
+
+	// Expanded here rather than at the point of use so every consumer sees a
+	// concrete secret name, and a malformed entry surfaces at startup.
+	exact := cfg.AdditionalExactSecrets[:0]
+	for _, name := range cfg.AdditionalExactSecrets {
+		name = strings.TrimSpace(strings.ReplaceAll(name, sourceEnvPlaceholder, cfg.SourceEnv))
+		if name != "" {
+			exact = append(exact, name)
+		}
+	}
+	cfg.AdditionalExactSecrets = exact
 
 	return cfg, nil
 }

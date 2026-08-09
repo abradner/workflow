@@ -72,12 +72,13 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 	futures := make([]workflow.ChildWorkflowFuture, len(cfg.Environments))
 	for i, env := range cfg.Environments {
 		futures[i] = workflow.ExecuteChildWorkflow(ctx, Sync1PasswordEnvWorkflow, Sync1PasswordEnvInput{
-			ProjectName: cfg.ProjectName,
-			VaultName:   cfg.OPVaultName,
-			SourceEnv:   cfg.SourceEnv,
-			TargetEnv:   env,
-			TLD:         cfg.TLD,
-			DryRun:      in.DryRun,
+			ProjectName:  cfg.ProjectName,
+			VaultName:    cfg.OPVaultName,
+			ExactSecrets: cfg.AdditionalExactSecrets,
+			SourceEnv:    cfg.SourceEnv,
+			TargetEnv:    env,
+			TLD:          cfg.TLD,
+			DryRun:       in.DryRun,
 		})
 	}
 
@@ -107,12 +108,13 @@ func Sync1PasswordWorkflow(ctx workflow.Context, in Sync1PasswordInput) (Sync1Pa
 // Sync1PasswordEnvInput is one environment's share of Sync1PasswordWorkflow's
 // work - the unit Sync1PasswordWorkflow fans out over.
 type Sync1PasswordEnvInput struct {
-	ProjectName string
-	VaultName   string
-	SourceEnv   string
-	TargetEnv   string
-	TLD         string
-	DryRun      bool
+	ProjectName  string
+	VaultName    string
+	ExactSecrets []string
+	SourceEnv    string
+	TargetEnv    string
+	TLD          string
+	DryRun       bool
 }
 
 // Sync1PasswordEnvResult summarizes what Sync1PasswordEnvWorkflow did for
@@ -150,12 +152,13 @@ func Sync1PasswordEnvWorkflow(ctx workflow.Context, in Sync1PasswordEnvInput) (S
 	// was: the `op item create` call at the end of it isn't safe to retry.
 	ingestCtx := workflow.WithActivityOptions(ctx, nonRetryingActivityOptions())
 	synced, err := runActivity[activities.SyncEnvSecretsResult](ingestCtx, a.SyncEnvSecrets, activities.SyncEnvSecretsInput{
-		ProjectName: in.ProjectName,
-		VaultName:   in.VaultName,
-		SourceEnv:   in.SourceEnv,
-		TargetEnv:   in.TargetEnv,
-		KCPublicKey: kcPublicKey,
-		DryRun:      in.DryRun,
+		ProjectName:      in.ProjectName,
+		VaultName:        in.VaultName,
+		ExactSecretNames: in.ExactSecrets,
+		SourceEnv:        in.SourceEnv,
+		TargetEnv:        in.TargetEnv,
+		KCPublicKey:      kcPublicKey,
+		DryRun:           in.DryRun,
 	})
 	if err != nil {
 		return Sync1PasswordEnvResult{}, fmt.Errorf("syncing secrets: %w", err)
