@@ -46,14 +46,28 @@ func New() *Client { return &Client{runner: execRunner{}} }
 // NewWithRunner builds a Client around a custom Runner - used in tests.
 func NewWithRunner(r Runner) *Client { return &Client{runner: r} }
 
-// CreateItem pipes item's JSON encoding to `op item create -`.
-func (c *Client) CreateItem(ctx context.Context, item map[string]any) (string, error) {
+// CreateItem pipes item's JSON encoding to `op item create -`, into vault.
+//
+// vault must be non-empty. Without --vault the CLI silently files the item in
+// the account's *personal* vault - no error, no warning - which is how this
+// tool spent its early life writing per-environment Secure Notes somewhere
+// only the operator who ran it could read. Callers validate before getting
+// here; this is the backstop.
+//
+// The category is deliberately not passed as a flag: it travels in the piped
+// template, and `op` rejects being given it in both places. See
+// docs/OP_CLI_NOTES.md.
+func (c *Client) CreateItem(ctx context.Context, item map[string]any, vault string) (string, error) {
+	if vault == "" {
+		return "", fmt.Errorf("refusing to create a 1Password item with no vault: it would land in the personal vault")
+	}
+
 	payload, err := json.Marshal(item)
 	if err != nil {
 		return "", fmt.Errorf("encoding 1Password item: %w", err)
 	}
 
-	stdout, stderr, err := c.runner.Run(ctx, "op", []string{"item", "create", "-"}, payload)
+	stdout, stderr, err := c.runner.Run(ctx, "op", []string{"item", "create", "--vault", vault, "-"}, payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to create 1P item: %s", strings.TrimSpace(stderr))
 	}

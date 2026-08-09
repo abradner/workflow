@@ -33,12 +33,14 @@ func TestCreateItem_PipesJSONToStdin(t *testing.T) {
 	client := op.NewWithRunner(runner)
 
 	template := map[string]any{"title": "my-item", "category": "SECURE_NOTE"}
-	out, err := client.CreateItem(context.Background(), template)
+	out, err := client.CreateItem(context.Background(), template, "Tooling")
 	require.NoError(t, err)
 
 	assert.Equal(t, "id=123", out)
 	assert.Equal(t, "op", runner.gotName)
-	assert.Equal(t, []string{"item", "create", "-"}, runner.gotArgs)
+	// --vault, then the trailing "-". No --category: it travels in the piped
+	// template and `op` rejects being given it in both places.
+	assert.Equal(t, []string{"item", "create", "--vault", "Tooling", "-"}, runner.gotArgs)
 
 	var sent map[string]any
 	require.NoError(t, json.Unmarshal(runner.gotIn, &sent))
@@ -49,7 +51,7 @@ func TestCreateItem_TrimsTrailingNewline(t *testing.T) {
 	runner := &fakeRunner{stdout: "id=123\n"}
 	client := op.NewWithRunner(runner)
 
-	out, err := client.CreateItem(context.Background(), map[string]any{})
+	out, err := client.CreateItem(context.Background(), map[string]any{}, "Tooling")
 	require.NoError(t, err)
 	assert.Equal(t, "id=123", out)
 }
@@ -58,7 +60,7 @@ func TestCreateItem_WrapsFailure(t *testing.T) {
 	runner := &fakeRunner{err: errors.New("exit 1"), stderr: "not signed in"}
 	client := op.NewWithRunner(runner)
 
-	_, err := client.CreateItem(context.Background(), map[string]any{})
+	_, err := client.CreateItem(context.Background(), map[string]any{}, "Tooling")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not signed in")
 }
@@ -104,7 +106,7 @@ func TestCreateItem_SatisfiesTheRealCLIContract(t *testing.T) {
 		}},
 	}
 
-	out, err := client.CreateItem(context.Background(), template)
+	out, err := client.CreateItem(context.Background(), template, "Tooling")
 	require.NoError(t, err)
 	// The real CLI prints a human-readable block here, not a bare ID -- so the
 	// item is inspected via the fake's own record rather than by trusting
@@ -150,18 +152,33 @@ func TestCreateItem_NoCategoryAnywhereIsRejected(t *testing.T) {
 // Omitting --vault is silently accepted and lands the item in the account's
 // personal vault. Not an error, and rarely what anyone intends -- see the
 // OP_VAULT_NAME work.
-func TestCreateItem_WithoutVaultLandsInTheDefaultVault(t *testing.T) {
+// CreateItem now refuses an empty vault outright rather than letting the CLI
+// silently file the item in the operator's personal vault.
+func TestCreateItem_RefusesEmptyVault(t *testing.T) {
 	runner := &optest.Runner{}
 	client := op.NewWithRunner(runner)
 
 	_, err := client.CreateItem(context.Background(),
-		map[string]any{"title": "k8s-wtf-dev4", "category": "SECURE_NOTE"})
+		map[string]any{"title": "k8s-wtf-dev4", "category": "SECURE_NOTE"}, "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "personal vault")
+	assert.Empty(t, runner.Items, "nothing should reach the CLI")
+}
+
+// The vault reaches the CLI as --vault.
+func TestCreateItem_PassesVaultThrough(t *testing.T) {
+	runner := &optest.Runner{}
+	client := op.NewWithRunner(runner)
+
+	_, err := client.CreateItem(context.Background(),
+		map[string]any{"title": "k8s-wtf-dev4", "category": "SECURE_NOTE"}, "Tooling - Athena")
 	require.NoError(t, err)
 
 	created := runner.Last()
 	require.NotNil(t, created)
-	assert.Equal(t, optest.DefaultVault, created.Vault,
-		"no --vault is passed today, so items land in the personal vault")
+	assert.Equal(t, "Tooling - Athena", created.Vault)
+	assert.Contains(t, runner.Calls[0], "--vault")
 }
 
 // A typo'd flag must fail, not be silently recorded and ignored. Without this
