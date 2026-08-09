@@ -3,6 +3,7 @@ package onepassword
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 )
 
 // NewFieldID mints an ID for a field the vault has not seen.
@@ -15,12 +16,18 @@ import (
 //
 // The CLI preserves supplied field IDs verbatim, so whatever this returns
 // becomes that field's stable identity for every subsequent run.
+// A read failure panics rather than degrading. Returning "" would be the
+// tempting alternative, and it is the wrong one for the same reason
+// domain.UpsertField refuses to default a nil generator: StaleFieldIDs skips
+// fields with an empty ID, so every field minted after such a failure becomes
+// permanently invisible to stale tracking, silently disabling prune-1p.
+//
+// crypto/rand.Read does not fail on a healthy system; if it does, the machine
+// has a problem worth stopping for, not working around.
 func NewFieldID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand does not fail in practice. If it ever does, an empty ID
-		// is safer than a predictable one: the CLI assigns its own.
-		return ""
+		panic(fmt.Sprintf("1Password field ID generation failed, refusing to mint unusable IDs: %v", err))
 	}
 	return hex.EncodeToString(b)
 }
