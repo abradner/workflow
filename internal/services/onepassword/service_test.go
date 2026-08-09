@@ -43,6 +43,8 @@ func (f *fakeOpClient) EditItem(_ context.Context, id string, item map[string]an
 	return "edited", nil
 }
 
+func testFieldID() string { return "generated-field-id" }
+
 func vaultItem() map[string]any {
 	return map[string]any{
 		"id": "abc123", "title": "k8s-wtf-dev4", "category": "SECURE_NOTE",
@@ -83,7 +85,7 @@ func TestCommit_CreatesWhenTheItemIsNew(t *testing.T) {
 	svc := onepassword.New("wtf", "Tooling", client)
 
 	item := domain.NewOnePasswordItem("k8s-wtf-dev4", "SECURE_NOTE")
-	item.UpsertField("cfg", "username", "v", "CONCEALED")
+	item.UpsertField("cfg", "username", "v", "CONCEALED", testFieldID)
 
 	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
 	require.NoError(t, err)
@@ -100,7 +102,7 @@ func TestCommit_EditsWhenTheItemExists(t *testing.T) {
 
 	item, err := svc.Load(context.Background(), "dev4")
 	require.NoError(t, err)
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
 	require.NoError(t, err)
@@ -122,7 +124,7 @@ func TestCommit_PreservesStaleFieldsAndCountsThem(t *testing.T) {
 
 	item, err := svc.Load(context.Background(), "dev4")
 	require.NoError(t, err)
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{})
 	require.NoError(t, err)
@@ -140,7 +142,7 @@ func TestCommit_PrunesOnlyWhenAsked(t *testing.T) {
 
 	item, err := svc.Load(context.Background(), "dev4")
 	require.NoError(t, err)
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	result, err := svc.Commit(context.Background(), item, onepassword.CommitOptions{Prune: true})
 	require.NoError(t, err)

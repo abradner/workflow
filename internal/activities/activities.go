@@ -350,7 +350,10 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 	// naming one explicitly is a deliberate act, and should beat whatever the
 	// filter happened to match.
 	if len(in.ExactSecretNames) > 0 {
-		exact, err := a.AWSSecrets.ExtractExact(ctx, in.ExactSecretNames)
+		// WithLogger returns a copy: Activities is shared across concurrent
+		// activity executions, so attaching a logger to the shared service
+		// would race across the per-environment fan-out.
+		exact, err := a.AWSSecrets.WithLogger(activity.GetLogger(ctx)).ExtractExact(ctx, in.ExactSecretNames)
 		if err != nil {
 			return SyncEnvSecretsResult{}, fmt.Errorf("extracting named AWS secrets: %w", err)
 		}
@@ -382,9 +385,10 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 	}
 
 	transformers.OnePasswordItemMapper{
-		SourceEnv: in.SourceEnv,
-		TargetEnv: in.TargetEnv,
-		Logger:    logger,
+		SourceEnv:  in.SourceEnv,
+		TargetEnv:  in.TargetEnv,
+		Logger:     logger,
+		NewFieldID: onepassword.NewFieldID,
 	}.Call(item, injected)
 
 	committed, err := svc.Commit(ctx, item, onepassword.CommitOptions{Prune: in.Prune})
@@ -394,8 +398,12 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 
 	// Warned about, never acted on. A stale field is often something a human
 	// put there deliberately, so removing it is an explicit, separate act.
-	// Counted rather than named: field labels are close enough to the secrets
-	// themselves, and this line ends up in Temporal's durable event history.
+	//
+	// Counted rather than named because the count travels back in
+	// SyncEnvSecretsResult, and activity results ARE recorded in Temporal's
+	// durable event history. (This log line itself is not - worker logs and
+	// event history are different sinks - but the value it prints is the same
+	// one that crosses the boundary, so the reasoning holds either way.)
 	if committed.StaleFields > 0 {
 		logger.Warn("Vault item has fields this run did not write; they are preserved",
 			"env", in.TargetEnv, "count", committed.StaleFields)

@@ -124,21 +124,37 @@ string form the CLI-based original produced.
 
 ### `onepassword`
 
-Builds one Secure Note per environment: a section per source secret, with JSON
-object payloads spread into individual fields and opaque string/binary payloads
-under a single `password` field.
+Reads, amends and writes back one Secure Note per environment. `Load` returns
+the existing item or a fresh one; `Commit` creates or edits accordingly.
 
-Two subtleties, both regression-tested:
+**It is an upsert, not a create.** An earlier version built a fresh item and
+created it on every run, which replaced the vault item wholesale — destroying
+any field a human had added, and churning every field's identity so anything
+referencing one by ID broke each time.
 
-- **`parseFlatJSONObject` preserves key order** by decoding token-by-token. Go's
-  map decoding randomises iteration order on purpose, which would reshuffle
-  fields on every run and produce meaningless diffs.
-- **`stringify` maps `nil` to `""`.** `fmt.Sprint(nil)` renders `<nil>`, which
-  would write that literal string into a real secret field. Ruby's `value.to_s`
-  produced an empty string, and consumers depend on that.
+Three properties hold it together, and each is load-bearing:
 
-It also uses `UseNumber()` — see the JSON number trap in
-[manifest-and-transformers.md](manifest-and-transformers.md).
+- **`Load` distinguishes "no item" from "the lookup failed".** A miss is
+  `(nil, nil)` from the client. Treating a failure as a miss would create a
+  *second* item beside the first.
+- **`Commit` sends every field back**, including ones this run did not write
+  and keys the model does not understand. `op item edit` replaces rather than
+  merges, so an omitted field is deleted from the vault.
+- **Stale fields are counted, never removed.** A field this tool did not write
+  is often deliberate. Only `prune-1p` deletes, via `CommitOptions{Prune: true}`.
+
+`NewFieldID` lives here rather than in `internal/domain` because minting an ID
+reads the OS entropy pool — I/O and nondeterminism, both of which `domain` is
+documented to be free of. That matters beyond tidiness: transformers call into
+the domain model and are documented as safe to call from workflow code, where a
+nondeterministic call breaks Temporal replay.
+
+The payload-shaping helpers (`ParseFlatJSONObject`, `Stringify`) moved down to
+`internal/transformers` — the transformer pipeline needs them, and transformers
+sit below services, so importing upward would invert the layering. Their two
+regression-tested subtleties travelled with them: key order is preserved by
+decoding token-by-token, and `nil` renders as `""` rather than the literal
+`<nil>` that `fmt.Sprint` produces.
 
 ### `filesystem`
 

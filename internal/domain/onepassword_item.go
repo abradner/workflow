@@ -1,18 +1,14 @@
 package domain
 
-import (
-	"crypto/rand"
-	"encoding/hex"
-	"sort"
-)
+import "sort"
 
 // knownItemKeys are the top-level keys `op item get --format json` returns.
 // Anything outside this set is preserved untouched and reported by
 // UnknownTopLevelKeys - see the type doc.
-var knownItemKeys = map[string]bool{
-	"id": true, "title": true, "category": true, "vault": true,
-	"version": true, "created_at": true, "updated_at": true,
-	"sections": true, "fields": true,
+var knownItemKeys = map[string]struct{}{
+	"id": {}, "title": {}, "category": {}, "vault": {},
+	"version": {}, "created_at": {}, "updated_at": {},
+	"sections": {}, "fields": {},
 }
 
 // OnePasswordItem is a 1Password item being built or amended.
@@ -88,7 +84,7 @@ func (i *OnePasswordItem) Payload() map[string]any { return i.raw }
 func (i *OnePasswordItem) UnknownTopLevelKeys() []string {
 	var unknown []string
 	for k := range i.raw {
-		if !knownItemKeys[k] {
+		if _, known := knownItemKeys[k]; !known {
 			unknown = append(unknown, k)
 		}
 	}
@@ -102,7 +98,24 @@ func (i *OnePasswordItem) UnknownTopLevelKeys() []string {
 // Preserving that ID is the point of the whole upsert: it is what makes a
 // field a stable thing across runs rather than a new field that happens to
 // have the same name.
-func (i *OnePasswordItem) UpsertField(sectionID, label, value, fieldType string) {
+//
+// newFieldID supplies an ID for a field the vault has not seen, and is a
+// parameter rather than something this package generates. Generating one means
+// reading the OS entropy pool - I/O, and nondeterministic - and internal/domain
+// is documented as free of both.
+//
+// That is not housekeeping. Transformers call UpsertField, transformers are
+// documented as safe to call directly from workflow code, and a
+// nondeterministic call in workflow code breaks Temporal replay. Pushing the
+// impurity out to the caller is what keeps that guarantee true rather than
+// merely claimed.
+//
+// newFieldID must be non-nil, and is deliberately NOT defaulted: a generator
+// returning "" would be worse than the panic it avoids. StaleFieldIDs skips
+// fields with an empty ID, so every field minted that way would be permanently
+// invisible to stale tracking - silently disabling the basis of prune-1p. A nil
+// generator is a wiring bug and should behave like one.
+func (i *OnePasswordItem) UpsertField(sectionID, label, value, fieldType string, newFieldID func() string) {
 	i.ensureSection(sectionID)
 
 	fields := i.fields()
@@ -198,16 +211,3 @@ func fieldSectionID(f map[string]any) string {
 }
 
 func asString(v any) string { s, _ := v.(string); return s }
-
-// newFieldID mints an ID for a field the vault has not seen. The CLI preserves
-// supplied field IDs verbatim, so this becomes the field's stable identity for
-// every subsequent run.
-func newFieldID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// crypto/rand does not fail in practice; if it ever does, an empty ID
-		// is safer than a predictable one - the CLI will assign its own.
-		return ""
-	}
-	return hex.EncodeToString(b)
-}

@@ -132,11 +132,15 @@ func (c *Client) GetItem(ctx context.Context, ref, vault string) (map[string]any
 // Two things make this sharper than it looks, both verified against op 2.35.0
 // and recorded in docs/OP_CLI_NOTES.md:
 //
-//   - The payload must be a *round-tripped* item - the full structure GetItem
-//     returned, including id, version, created_at and updated_at. A
-//     hand-assembled subset is rejected outright ("Item updatedAt must be >
-//     1970-01-01"), which is why the domain model wraps what the CLI gave it
-//     rather than rebuilding a payload from modelled fields.
+//   - The payload must be a *round-tripped* item - the structure GetItem
+//     returned, sent back whole. A hand-assembled subset is rejected outright:
+//     the observed failure was "Item updatedAt must be > 1970-01-01" for a
+//     payload carrying only title/category/sections/fields. Exactly which
+//     fields the validator requires was NOT established - only that omitting
+//     the metadata fails - so the fake checks for id and updated_at, the two
+//     the failure named. Send the whole thing back and the question does not
+//     arise, which is why the domain model wraps what the CLI gave it rather
+//     than rebuilding a payload from modelled fields.
 //   - The write is REPLACE, not merge. Any field absent from the payload is
 //     deleted from the vault. Preserving a field you are not modifying means
 //     sending it back verbatim; there is no passive option.

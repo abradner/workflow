@@ -15,6 +15,12 @@ pmn-kustomize/
 # per-developer local overrides are not.
 .claude/settings.local.json
 
+# Scratch output from agent tooling that writes into the working directory
+# rather than a temp dir. Caught at `git add` once; ignored so it cannot be
+# committed by a broad add next time.
+diagram.json
+diagram.mermaid
+
 # Editor / IDE
 .idea/
 .vscode/

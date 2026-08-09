@@ -33,8 +33,32 @@ type Logger interface {
 type Service struct {
 	client Client
 
-	// Logger is optional; nil disables the skipped-secret warnings.
-	Logger Logger
+	// logger is optional; nil disables the skipped-secret warnings. Set with
+	// WithLogger rather than assigned, so the only way to attach one produces
+	// a copy - see that method for why.
+	logger Logger
+}
+
+// WithLogger returns a copy of s that logs through l.
+//
+// A copy, not a setter, and deliberately so. Activities holds one *Service
+// shared by every concurrently-executing activity, so assigning a logger field
+// on it would be a data race across the per-environment fan-out - two
+// environments syncing at once, both writing the same pointer. Copying the
+// value gives each invocation its own logger and leaves the shared one
+// untouched.
+//
+// This exists because the alternative silently failed: the service had an
+// exported Logger field that production never set, so ExtractExact's
+// not-found path swallowed missing secrets without a word while the docs
+// promised a warning.
+func (s *Service) WithLogger(l Logger) *Service {
+	if s == nil {
+		return nil
+	}
+	copied := *s
+	copied.logger = l
+	return &copied
 }
 
 // New builds a Service using the ambient AWS credential chain (env vars,
@@ -144,7 +168,7 @@ func (s *Service) ExtractExact(ctx context.Context, names []string) ([]domain.Ex
 // logf reports a skipped secret. Nil-safe so the service stays usable without
 // a logger; a skipped secret is worth saying out loud but never fatal.
 func (s *Service) logf(format string, args ...any) {
-	if s.Logger != nil {
-		s.Logger.Info(fmt.Sprintf(format, args...))
+	if s.logger != nil {
+		s.logger.Info(fmt.Sprintf(format, args...))
 	}
 }

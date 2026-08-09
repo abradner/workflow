@@ -94,21 +94,36 @@ template never mentioned it. Only custom fields are destroyed.
 The consequence for callers: preserving a field you are not modifying means
 sending it back verbatim. There is no passive option.
 
-### Open question — settle before building `EditItem`
+### Settled (2026-08-01)
 
-The working edit observed was `cat f | op item edit <id> --vault V`, a pipe with
-no `-`. A separate attempt, `op item edit <id> - --vault V < f`, exited 0 and
-changed nothing.
+The dash question is **moot**. `cat f | op item edit <id>` and
+`cat f | op item edit <id> -` behave identically - both read stdin, both fail
+the same way on a bad payload. The earlier "silent no-op" was caused entirely
+by the shell redirect, exactly as on `create`.
 
-That failing case had **both** a redirect and a `-`, and the redirect alone is
-now known to be sufficient to explain it. So whether `-` is harmful, harmless, or
-required for `edit` is **not established**. It could not be retested afterwards
-because the test items had been deleted.
+**The real constraint is that the payload must be round-tripped.** A
+hand-authored partial template is rejected:
 
-`op item get -` reads an item *list* from stdin, so `-` plausibly means something
-different for `edit` than for `create` — worth assuming nothing.
+```
+[ERROR] unable to process line 1: Validation: Couldn't validate the item:
+"[ItemValidator] has found 1 errors: {1. Item updatedAt must be > 1970-01-01}"
+```
 
-Settle it with one item and two `--dry-run` calls when `EditItem` is built.
+Get the item with `op item get --format json`, mutate it, send the whole thing
+back. Verified working, and REPLACE semantics hold on the round-tripped form
+too - a dropped field vanished from the preview.
+
+What was **not** established: exactly which metadata fields the validator
+requires. Only that omitting them fails, and that the error named `updatedAt`.
+`optest` therefore checks for `id` and `updated_at` rather than pretending to
+know the full set. Sending the item back whole makes the question moot in
+practice.
+
+Consequence for callers: a model that rebuilds the payload from fields it
+models produces something the CLI refuses. The Ruby original's `to_h` emitted
+only title, category, sections and fields, so its edit path could never have
+worked - the same class of defect as its create invocation, and equally
+invisible without running the binary.
 
 ## `op item get`
 

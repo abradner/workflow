@@ -323,6 +323,10 @@ because it was already decided or ticketed.
   low-confidence `<details>` block. Always open it.
 - **"Reviewed N out of M changed files" is a partial pass reading as a complete
   one.** Read the count; close the gap yourself in synthesis.
+- **A green CI run may not have run the jobs that matter.** Path filtering can
+  skip the half of the suite your change lives in, and the rollup is green
+  either way. Check which jobs actually executed, not the colour. (From keel's
+  generalised version of this workflow.)
 - **A new test that passes on its first run proves nothing.** Show every test
   written to demonstrate a fix failing first. If it won't fail, either the
   harness is wrong or the bug is not where you think — both worth knowing.
@@ -351,9 +355,34 @@ hard-to-reverse shared-state action that needs a live go-ahead each time, not
 standing authorization from having approved the workflow once. If the stack is
 ready, say so and stop.
 
-**Pre-flight**: confirm the followup's base is the cap, not `main` —
-`gh pr view <followup> --json baseRefName`. If the Phase 6 retarget was missed,
-squash-merging it would collapse the whole stack into one commit.
+**Pre-flight, in order. Both checks, every time.**
+
+1. **Does a followup exist, and is it in the train?** The whole write-only
+   bargain is that feedback gets answered *somewhere*; if the stack merges
+   without a followup, every accepted finding silently becomes debt on `main`
+   with nothing tracking it. Nothing in the mechanics prevents this — the
+   stack is perfectly mergeable without one, and the button does not ask.
+
+   ```bash
+   gh api repos/{owner}/{repo}/stacks/<n> --jq '[.pull_requests[].number]'
+   ```
+
+   If there is no followup: either there was genuinely no feedback to action
+   (check — "zero unresolved threads" reads identically to "never reviewed"),
+   or synthesis has not happened yet and this phase is premature. Say so and
+   stop.
+
+   *This is not hypothetical.* Batch `op-upsert` (#11–#19) merged all nine
+   interstitials with no followup, leaving thirteen accepted findings on `main`
+   — including a real bug (a warning that could never fire, because production
+   never set the logger it wrote to) and a determinism trap in a package
+   documented as pure. They were recovered only because the synthesis notes
+   happened to still be in a session. A later batch would not be so lucky.
+
+2. **Is the followup's base the cap, not `main`?**
+   `gh pr view <followup> --json baseRefName`. The Phase 6 draft-first opening
+   deliberately targets `main` for the aggregate review; if the retarget was
+   missed, squash-merging it collapses the entire stack into one commit.
 
 Then, per interstitial bottom-up:
 
@@ -471,6 +500,9 @@ flavour is not a fallback but the only path.
 - Phase 7 needs an explicit, per-batch go-ahead from the human operator — never
   self-initiate the merge train, including under autonomous or auto-mode
   operation.
+- **Before the train: confirm a followup exists and is in it.** A stack merges
+  perfectly well without one, and then the accepted findings are just debt on
+  main. Observed on batch op-upsert.
 - Only the followup's CI gates the batch. Unexplained interstitial red is a
   real signal.
 - The interstitial showstopper bar is irreversible loss on merge, nothing else.

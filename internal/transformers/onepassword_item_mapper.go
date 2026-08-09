@@ -21,6 +21,12 @@ type OnePasswordItemMapper struct {
 	SourceEnv string
 	TargetEnv string
 	Logger    Logger // nil is fine, logging is best-effort
+
+	// NewFieldID mints IDs for fields the vault has not seen. Injected rather
+	// than generated here: minting one reads the OS entropy pool, and this
+	// package is documented as pure so that workflow code can call it directly
+	// without breaking Temporal replay.
+	NewFieldID func() string
 }
 
 // Call upserts every secret into item.
@@ -28,6 +34,14 @@ func (t OnePasswordItemMapper) Call(item *domain.OnePasswordItem, secrets []doma
 	if item == nil {
 		return
 	}
+
+	// No nil guard on NewFieldID, deliberately. The obvious defensive move -
+	// falling back to a generator returning "" - is worse than the panic it
+	// avoids: StaleFieldIDs skips fields with an empty ID, so every field
+	// created that way becomes permanently invisible to stale tracking, which
+	// is the whole basis of prune-1p. A nil generator is a wiring bug; it
+	// should fail at the first test run, loudly, not degrade a feature quietly.
+	newFieldID := t.NewFieldID
 
 	for _, secret := range secrets {
 		sectionID := sanitizeSectionID(t.remap(secret.Name))
@@ -37,15 +51,15 @@ func (t OnePasswordItemMapper) Call(item *domain.OnePasswordItem, secrets []doma
 			value := t.remap(*secret.String)
 			if keys, values, ok := ParseFlatJSONObject(value); ok {
 				for _, k := range keys {
-					item.UpsertField(sectionID, k, Stringify(values[k]), "CONCEALED")
+					item.UpsertField(sectionID, k, Stringify(values[k]), "CONCEALED", newFieldID)
 				}
 				continue
 			}
-			item.UpsertField(sectionID, "password", value, "CONCEALED")
+			item.UpsertField(sectionID, "password", value, "CONCEALED", newFieldID)
 		case secret.Binary != nil:
 			// Not remapped: a base64 blob has no environment names in it, and
 			// a substring replacement inside encoded bytes would corrupt it.
-			item.UpsertField(sectionID, "password", *secret.Binary, "CONCEALED")
+			item.UpsertField(sectionID, "password", *secret.Binary, "CONCEALED", newFieldID)
 		}
 	}
 }
@@ -70,8 +84,14 @@ func (t OnePasswordItemMapper) remap(s string) string {
 	return out
 }
 
-// sanitizeSectionID drops the leading environment segment from an AWS secret
-// name and joins the rest with hyphens: "dev4/wtf/config" -> "wtf-config".
+// sanitizeSectionID drops the FIRST path segment of an AWS secret name and
+// joins the rest with hyphens: "dev4/wtf/config" -> "wtf-config".
+//
+// The first segment is not necessarily the environment, despite what this
+// used to claim. Real names look like "dev/dev3_pmn_keycloak/..." where the
+// dropped segment is the account-level "dev" prefix and the environment sits
+// in the second. What the rule actually encodes is "strip one level of
+// namespacing", which happens to be right for both shapes.
 func sanitizeSectionID(awsName string) string {
 	parts := strings.Split(awsName, "/")
 	if len(parts) > 1 {
