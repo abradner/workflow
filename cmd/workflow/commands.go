@@ -45,6 +45,31 @@ func newSync1PasswordCmd(opts *globalOptions) *cobra.Command {
 	}
 }
 
+// newPrune1PasswordCmd is sync-1p plus deletion, deliberately spelled as its
+// own command rather than a `--prune` flag on sync-1p.
+//
+// A flag is one keystroke from a routine sync and reads as a modifier; a
+// separate verb has to be chosen. Everything this tool deletes is deleted
+// because someone typed the word.
+func newPrune1PasswordCmd(opts *globalOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "prune-1p",
+		Short: "Sync secrets into 1Password AND remove vault fields this run did not write",
+		Long: "Runs the same extract-and-sync as sync-1p, then DELETES any field in each environment's Secure Note\n" +
+			"that the sync did not write - fields added by hand, and fields left behind by secrets that no longer\n" +
+			"exist in AWS. sync-1p only ever reports these; this command acts on them.\n\n" +
+			"Run `sync-1p --verbose` first: it logs how many stale fields each environment has, and the vault shows\n" +
+			"you which. Deletion is not recoverable through this tool.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runWorkflow(cmd.Context(), opts, workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{
+				DryRun: opts.DryRun,
+				Prune:  true,
+			})
+		},
+	}
+}
+
 func newRenderTalosCmd(opts *globalOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "render-talos",

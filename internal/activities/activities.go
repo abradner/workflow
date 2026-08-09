@@ -282,10 +282,14 @@ type SyncEnvSecretsInput struct {
 	// filter - see awssecrets.ExtractExact. Names only; no values cross this
 	// boundary.
 	ExactSecretNames []string
-	SourceEnv        string
-	TargetEnv        string
-	KCPublicKey      string // "" means no fresh Keycloak key to inject
-	DryRun           bool
+
+	// Prune deletes fields this run did not write. Off unless `prune-1p` was
+	// the command; never inferred from anything else.
+	Prune       bool
+	SourceEnv   string
+	TargetEnv   string
+	KCPublicKey string // "" means no fresh Keycloak key to inject
+	DryRun      bool
 }
 
 type SyncEnvSecretsResult struct {
@@ -383,7 +387,7 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 		Logger:    logger,
 	}.Call(item, injected)
 
-	committed, err := svc.Commit(ctx, item, onepassword.CommitOptions{})
+	committed, err := svc.Commit(ctx, item, onepassword.CommitOptions{Prune: in.Prune})
 	if err != nil {
 		return SyncEnvSecretsResult{}, err
 	}
