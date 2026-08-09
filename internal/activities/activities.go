@@ -385,9 +385,10 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 	}
 
 	transformers.OnePasswordItemMapper{
-		SourceEnv: in.SourceEnv,
-		TargetEnv: in.TargetEnv,
-		Logger:    logger,
+		SourceEnv:  in.SourceEnv,
+		TargetEnv:  in.TargetEnv,
+		Logger:     logger,
+		NewFieldID: onepassword.NewFieldID,
 	}.Call(item, injected)
 
 	committed, err := svc.Commit(ctx, item, onepassword.CommitOptions{Prune: in.Prune})

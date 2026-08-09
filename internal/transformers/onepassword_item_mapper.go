@@ -21,12 +21,26 @@ type OnePasswordItemMapper struct {
 	SourceEnv string
 	TargetEnv string
 	Logger    Logger // nil is fine, logging is best-effort
+
+	// NewFieldID mints IDs for fields the vault has not seen. Injected rather
+	// than generated here: minting one reads the OS entropy pool, and this
+	// package is documented as pure so that workflow code can call it directly
+	// without breaking Temporal replay.
+	NewFieldID func() string
 }
 
 // Call upserts every secret into item.
 func (t OnePasswordItemMapper) Call(item *domain.OnePasswordItem, secrets []domain.ExtractedSecret) {
 	if item == nil {
 		return
+	}
+
+	newFieldID := t.NewFieldID
+	if newFieldID == nil {
+		// An empty ID is what the domain model already falls back to, and the
+		// CLI assigns its own. Better than panicking on a nil func in a
+		// transformer that is otherwise total.
+		newFieldID = func() string { return "" }
 	}
 
 	for _, secret := range secrets {
@@ -37,15 +51,15 @@ func (t OnePasswordItemMapper) Call(item *domain.OnePasswordItem, secrets []doma
 			value := t.remap(*secret.String)
 			if keys, values, ok := ParseFlatJSONObject(value); ok {
 				for _, k := range keys {
-					item.UpsertField(sectionID, k, Stringify(values[k]), "CONCEALED")
+					item.UpsertField(sectionID, k, Stringify(values[k]), "CONCEALED", newFieldID)
 				}
 				continue
 			}
-			item.UpsertField(sectionID, "password", value, "CONCEALED")
+			item.UpsertField(sectionID, "password", value, "CONCEALED", newFieldID)
 		case secret.Binary != nil:
 			// Not remapped: a base64 blob has no environment names in it, and
 			// a substring replacement inside encoded bytes would corrupt it.
-			item.UpsertField(sectionID, "password", *secret.Binary, "CONCEALED")
+			item.UpsertField(sectionID, "password", *secret.Binary, "CONCEALED", newFieldID)
 		}
 	}
 }

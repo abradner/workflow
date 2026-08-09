@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,15 @@ import (
 
 // The item a real `op item get --format json` returns, including the keys the
 // model does not interpret but must not lose.
+// testFieldID is deterministic: these tests care about which field got the ID,
+// never what it is.
+var testFieldIDCounter int
+
+func testFieldID() string {
+	testFieldIDCounter++
+	return fmt.Sprintf("generated-%d", testFieldIDCounter)
+}
+
 func vaultItem() map[string]any {
 	return map[string]any{
 		"id": "abc123", "title": "k8s-wtf-dev4", "category": "SECURE_NOTE",
@@ -35,7 +45,7 @@ func TestOnePasswordItem_PreservesUnmodelledKeys(t *testing.T) {
 	raw["urls"] = []any{map[string]any{"href": "https://example.com"}}
 
 	item := domain.WrapOnePasswordItem(raw)
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	payload := item.Payload()
 	assert.Equal(t, true, payload["favorite"], "an unmodelled key must reach the vault untouched")
@@ -62,7 +72,7 @@ func TestOnePasswordItem_ReportsUnknownKeys(t *testing.T) {
 func TestOnePasswordItem_UpsertPreservesVaultFieldID(t *testing.T) {
 	item := domain.WrapOnePasswordItem(vaultItem())
 
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	fields := item.Payload()["fields"].([]any)
 	require.Len(t, fields, 2, "updating must not append a duplicate")
@@ -74,7 +84,7 @@ func TestOnePasswordItem_UpsertPreservesVaultFieldID(t *testing.T) {
 func TestOnePasswordItem_UpsertAddsNewFieldAndSection(t *testing.T) {
 	item := domain.WrapOnePasswordItem(vaultItem())
 
-	item.UpsertField("newsec", "api_key", "secret", "CONCEALED")
+	item.UpsertField("newsec", "api_key", "secret", "CONCEALED", testFieldID)
 
 	fields := item.Payload()["fields"].([]any)
 	require.Len(t, fields, 3)
@@ -91,7 +101,7 @@ func TestOnePasswordItem_UpsertAddsNewFieldAndSection(t *testing.T) {
 func TestOnePasswordItem_StaleFieldIDs(t *testing.T) {
 	item := domain.WrapOnePasswordItem(vaultItem())
 
-	item.UpsertField("cfg", "username", "new", "CONCEALED")
+	item.UpsertField("cfg", "username", "new", "CONCEALED", testFieldID)
 
 	assert.Equal(t, []string{"f-2"}, item.StaleFieldIDs(),
 		"f-1 was written this run; f-2 was not")
@@ -115,7 +125,7 @@ func TestOnePasswordItem_NewItemIsNewAndHasNoID(t *testing.T) {
 	assert.Empty(t, item.ID())
 	assert.Equal(t, "k8s-wtf-dev5", item.Title())
 
-	item.UpsertField("cfg", "username", "v", "CONCEALED")
+	item.UpsertField("cfg", "username", "v", "CONCEALED", testFieldID)
 	assert.Empty(t, item.StaleFieldIDs(), "a fresh item has nothing stale")
 }
 
