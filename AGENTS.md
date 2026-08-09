@@ -24,8 +24,8 @@ it from the code:
 
 About to push a batch of local commits? Read
 [`.claude/skills/independent-commit-review/SKILL.md`](.claude/skills/independent-commit-review/SKILL.md)
-- fresh-eyes review per commit, with every fix proven by watching its test fail
-first. Cheaper before the PRs exist than after.
+first — fresh-eyes review per commit, with every fix proven by watching its test
+fail before it passes. Cheaper before the PRs exist than after.
 
 Shipping a body of work as several PRs? Read
 [`.claude/skills/batch-review/SKILL.md`](.claude/skills/batch-review/SKILL.md)
