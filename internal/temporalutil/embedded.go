@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 	"go.temporal.io/server/temporaltest"
@@ -37,7 +36,7 @@ func RunEmbedded[TIn, TOut any](ctx context.Context, workflowFn func(workflow.Co
 		RegisterAll(r, acts)
 	})
 
-	run, err := ts.GetDefaultClient().ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: TaskQueue}, workflowFn, input)
+	run, err := ts.GetDefaultClient().ExecuteWorkflow(ctx, StartOptions(), workflowFn, input)
 	if err != nil {
 		return zero, fmt.Errorf("starting workflow: %w", err)
 	}

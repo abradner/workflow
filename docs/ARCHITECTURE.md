@@ -140,6 +140,49 @@ passing secret values through the parent.
 Moving a secret into a *narrower* activity is not the same as keeping it inside
 one. An earlier fix did the former and was correctly rejected.
 
+#### The residue — a known, unfixed limitation
+
+**Keeping secret *values* out of history does not make history safe.** What
+still crosses the boundary is metadata, and metadata about secrets is not
+nothing:
+
+- environment names and project names
+- 1Password item titles (`k8s-<project>-<env>`)
+- filesystem paths, app names, counts of secrets and stale fields
+
+Anyone with Web UI, API or database access reads all of it. An attacker who
+learns that `k8s-pmn-dev4` exists, holds 19 secrets, and lives in a named
+vault has been handed a map.
+
+This is why activity results report **counts, never field names**. Field labels
+(`password`, `mp.jwt.verify.publickey`, a username) sit close enough to the
+secrets themselves that naming them in history would undo much of the work
+above — so the stale-field warning says *how many*, and an operator reads
+*which* from the vault.
+
+**What is done about it today:** history retention is set to **one hour**, the
+shortest window the server permits (`namespace.MinRetentionLocal`; zero is
+rejected as ambiguous with "keep forever", and replicated namespaces are held
+to 24h). Every run is also bounded by a one-hour `WorkflowRunTimeout`, since an
+unbounded run has no history TTL either. That shortens exposure. **It does not
+remove it.**
+
+**What would actually fix it:** a Temporal `DataConverter` with an encrypting
+`PayloadCodec`, which encrypts every payload before it reaches history and
+decrypts on read. This is Temporal's own sanctioned extension point, configured
+at client/worker construction — the right layer, not a workaround. It is not
+done because it is a real piece of infrastructure, not a flag: the worker needs
+a key at startup, the Web UI needs a codec server to stay readable, key
+rotation has to keep old history decryptable, and getting any of that wrong
+trades a visible limitation for an invisible one. Tracked separately.
+
+Approaches that do **not** work, so they are not attempted:
+
+- **Hashing or tokenising labels without shared key material.** Field labels are
+  drawn from a tiny, guessable vocabulary; an unsalted digest of `password`
+  falls to a dictionary in seconds. Salting requires the salt to reach the
+  reader, which is key management wearing a disguise.
+
 ### 2. Bulk data must not cross a workflow boundary either
 
 Same mechanism, different symptom: Temporal's default 2 MB payload and 4 MB
