@@ -1,7 +1,6 @@
 package domain_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,17 +9,14 @@ import (
 	"github.com/abradner/workflow/internal/domain"
 )
 
+// testFieldID returns a constant. These tests care that a new field gets a
+// non-empty ID, never what it is - so a counter would add cross-test mutable
+// state and make results depend on execution order under `go test -shuffle`,
+// buying nothing.
+func testFieldID() string { return "generated-field-id" }
+
 // The item a real `op item get --format json` returns, including the keys the
 // model does not interpret but must not lose.
-// testFieldID is deterministic: these tests care about which field got the ID,
-// never what it is.
-var testFieldIDCounter int
-
-func testFieldID() string {
-	testFieldIDCounter++
-	return fmt.Sprintf("generated-%d", testFieldIDCounter)
-}
-
 func vaultItem() map[string]any {
 	return map[string]any{
 		"id": "abc123", "title": "k8s-wtf-dev4", "category": "SECURE_NOTE",
