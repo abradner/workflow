@@ -2,7 +2,6 @@ package temporalutil_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/server/common/namespace"
@@ -16,7 +15,6 @@ import (
 func TestHistoryRetention_MatchesTheServersLocalMinimum(t *testing.T) {
 	assert.Equal(t, namespace.MinRetentionLocal, temporalutil.HistoryRetention,
 		"retention should track the shortest window the server accepts")
-	assert.Equal(t, time.Hour, temporalutil.HistoryRetention)
 }
 
 // Every execution is bounded. A batch job still running an hour later is
@@ -25,6 +23,7 @@ func TestStartOptions_BoundsEveryRun(t *testing.T) {
 	opts := temporalutil.StartOptions()
 
 	assert.Equal(t, temporalutil.TaskQueue, opts.TaskQueue)
-	assert.Equal(t, time.Hour, opts.WorkflowRunTimeout)
+	assert.Equal(t, temporalutil.WorkflowRunTimeout, opts.WorkflowRunTimeout,
+		"StartOptions must use the package's configured timeout, whatever it becomes")
 	assert.NotZero(t, opts.WorkflowRunTimeout, "an unbounded run has no history TTL either")
 }

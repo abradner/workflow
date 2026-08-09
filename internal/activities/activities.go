@@ -398,8 +398,12 @@ func (a *Activities) SyncEnvSecrets(ctx context.Context, in SyncEnvSecretsInput)
 
 	// Warned about, never acted on. A stale field is often something a human
 	// put there deliberately, so removing it is an explicit, separate act.
-	// Counted rather than named: field labels are close enough to the secrets
-	// themselves, and this line ends up in Temporal's durable event history.
+	//
+	// Counted rather than named because the count travels back in
+	// SyncEnvSecretsResult, and activity results ARE recorded in Temporal's
+	// durable event history. (This log line itself is not - worker logs and
+	// event history are different sinks - but the value it prints is the same
+	// one that crosses the boundary, so the reasoning holds either way.)
 	if committed.StaleFields > 0 {
 		logger.Warn("Vault item has fields this run did not write; they are preserved",
 			"env", in.TargetEnv, "count", committed.StaleFields)

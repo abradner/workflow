@@ -18,8 +18,14 @@ import (
 // workflow execution targets.
 const TaskQueue = "workflow-engine"
 
-// HistoryRetention is how long a completed workflow's event history is kept
-// before the server deletes it.
+// HistoryRetention is the intended namespace retention for this engine.
+//
+// It configures NOTHING on its own. Retention is a server-side namespace
+// setting; this constant exists to name the intended value in one place and to
+// be asserted against the server's own floor. The value that actually takes
+// effect is set where the namespace is created - DEFAULT_NAMESPACE_RETENTION
+// in docker-compose.yml for external mode. Change one, change the other; the
+// test below catches drift from the floor but cannot catch drift from compose.
 //
 // One hour is not a round number picked for taste: it is the hard floor the
 // server permits for a local namespace (namespace.MinRetentionLocal). Zero is
@@ -39,7 +45,10 @@ const HistoryRetention = time.Hour
 // not slow, and should fail rather than sit in history holding its inputs.
 const WorkflowRunTimeout = time.Hour
 
-// StartOptions are the options every workflow execution starts with.
+// StartOptions are the options ROOT workflow executions start with - the ones
+// RunEmbedded and RunExternal launch. Child workflows inherit their parent's
+// deadline rather than these, and testsuite executions bypass them entirely,
+// so this is not a global policy hook.
 func StartOptions() client.StartWorkflowOptions {
 	return client.StartWorkflowOptions{
 		TaskQueue:          TaskQueue,

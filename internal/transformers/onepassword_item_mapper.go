@@ -84,8 +84,14 @@ func (t OnePasswordItemMapper) remap(s string) string {
 	return out
 }
 
-// sanitizeSectionID drops the leading environment segment from an AWS secret
-// name and joins the rest with hyphens: "dev4/wtf/config" -> "wtf-config".
+// sanitizeSectionID drops the FIRST path segment of an AWS secret name and
+// joins the rest with hyphens: "dev4/wtf/config" -> "wtf-config".
+//
+// The first segment is not necessarily the environment, despite what this
+// used to claim. Real names look like "dev/dev3_pmn_keycloak/..." where the
+// dropped segment is the account-level "dev" prefix and the environment sits
+// in the second. What the rule actually encodes is "strip one level of
+// namespacing", which happens to be right for both shapes.
 func sanitizeSectionID(awsName string) string {
 	parts := strings.Split(awsName, "/")
 	if len(parts) > 1 {
