@@ -6,10 +6,10 @@ are explained in [GO_NOTES.md](../GO_NOTES.md).
 
 | Document | Covers |
 |---|---|
-| [cli-and-config.md](cli-and-config.md) | `cmd/workflow`, `internal/config`, `internal/temporalutil`, `internal/logging` |
+| [cli-and-config.md](cli-and-config.md) | `cmd/workflow`, `internal/config`, and the platform packages `cli`, `temporalutil`, `configload`, `logging` |
 | [workflows-and-activities.md](workflows-and-activities.md) | `internal/workflows`, `internal/activities` |
 | [manifest-and-transformers.md](manifest-and-transformers.md) | `internal/manifest`, `internal/transformers`, `internal/domain` |
-| [services-and-clients.md](services-and-clients.md) | `internal/services/*`, `internal/serviceclients/*` |
+| [services-and-clients.md](services-and-clients.md) | `internal/services/*`, `internal/serviceclients/*`, and the platform package `filesystem` |
 
 ## Layering
 

@@ -86,7 +86,7 @@ process unsolicited; it is invoked, not inferred.
 7. **Verify clean, then swap.**
 
    ```bash
-   gofmt -l ./cmd ./internal      # must print nothing
+   gofmt -l .                     # must print nothing (matches CI; covers the top-level platform packages too)
    go vet ./...
    go build ./...
    go test ./... -count=1 -shuffle=on

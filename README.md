@@ -14,7 +14,8 @@ Go file replaces which Ruby file, or [`docs/MIGRATION_PLAYBOOK.md`](docs/MIGRATI
 a repo-agnostic writeup of this same migration's concept map and lessons, meant to be reused on a
 different Ruby → Temporal migration later.
 
-There are five workflows, each its own CLI command:
+There are five workflows behind six CLI commands (`prune-1p` runs the `sync-1p` workflow with
+pruning enabled):
 
 ### `sync` → SyncWorkloads
 **What:** Synchronizes Kustomize manifests for all workloads.

@@ -11,7 +11,7 @@ makes them trivially testable.
 
 The in-memory model of one application's Kubernetes/Kustomize files, plus the
 helpers the transformer pipeline uses to read and mutate it. Nothing here
-touches disk — that is `internal/services/filesystem`.
+touches disk — that is `filesystem`.
 
 A `Workspace` maps virtual paths (`base/deployment.yaml`,
 `overlay/dev4/kustomization.yaml`) to decoded YAML documents. Transformers add,
