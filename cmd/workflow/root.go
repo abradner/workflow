@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/abradner/workflow/internal/logging"
+	"github.com/abradner/workflow/logging"
 )
 
 // globalOptions holds the flags every subcommand shares.

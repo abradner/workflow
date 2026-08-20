@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/abradner/workflow/filesystem"
 	"github.com/abradner/workflow/internal/manifest"
-	"github.com/abradner/workflow/internal/services/filesystem"
 )
 
 // FS is the subset of filesystem.Service the extractor depends on.

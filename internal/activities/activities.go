@@ -18,6 +18,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"gopkg.in/yaml.v3"
 
+	"github.com/abradner/workflow/filesystem"
 	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/domain"
 	"github.com/abradner/workflow/internal/manifest"
@@ -25,7 +26,6 @@ import (
 	"github.com/abradner/workflow/internal/serviceclients/op"
 	"github.com/abradner/workflow/internal/services/awssecrets"
 	"github.com/abradner/workflow/internal/services/discoversamlcreds"
-	"github.com/abradner/workflow/internal/services/filesystem"
 	"github.com/abradner/workflow/internal/services/keycloaksetup"
 	"github.com/abradner/workflow/internal/services/onepassword"
 	"github.com/abradner/workflow/internal/services/templaterendering"
