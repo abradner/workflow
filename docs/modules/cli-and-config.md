@@ -88,20 +88,26 @@ compile-time guarantee rather than a convention.
 `ExternalSecretsAPIVersion` is tagged `env:"-"`: a constant that lives here for
 easy upgrading, not a setting.
 
-## `internal/temporalutil`
+## `temporalutil` (top-level, exported)
 
-Wires the two run modes. `TaskQueue` is the single queue everything targets, and
-`RegisterAll` registers every workflow and activity, so any worker can serve any
-command.
+Platform code: wires the two run modes around a consumer-defined
+`Engine{TaskQueue, Register}` — this repo's own Engine lives in
+`cmd/workflow/engine.go`, whose `registerAll` registers every workflow and
+activity, so any worker can serve any command. Also home to the platform's
+activity-call conventions: `DefaultActivityOptions`, `NonRetryingActivityOptions`
+and `RunActivity` (wrapped privately by `internal/workflows/support.go`).
 
-**`RunEmbedded`** starts an in-process Temporal dev server on in-memory SQLite,
-plus a worker, runs one workflow, and tears it all down. No external
-dependencies; nothing survives the process.
+**`embedded.Run`** (subpackage `temporalutil/embedded`) starts an in-process
+Temporal dev server on in-memory SQLite, plus a worker, runs one workflow, and
+tears it all down. No external dependencies; nothing survives the process. It is
+a subpackage so that importing core `temporalutil` never links
+`go.temporal.io/server` into the build.
 
 **`RunExternal`** dials an existing server and waits for the result. It starts
-no worker — a separate `workflow worker` process must already be polling
-`TaskQueue`. If nothing is polling, the workflow is accepted and simply never
-progresses, which presents as a hang rather than an error.
+no worker — a separate long-lived worker process (**`RunWorker`**, the `worker`
+subcommand) must already be polling the engine's task queue. If nothing is
+polling, the workflow is accepted and simply never progresses, which presents as
+a hang rather than an error.
 
 The dependency triple `go.temporal.io/sdk`, `.../server` and `.../api` must stay
 mutually compatible. `go mod tidy` alone can drift `api` ahead of what `server`
