@@ -12,7 +12,9 @@
 package configload
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,9 +29,13 @@ import (
 // working directory (in a container, wherever its entrypoint left cwd), not
 // wherever the CLI was invoked. Missing is fine; a present-but-elsewhere
 // .env silently isn't loaded, so prefer real environment variables in
-// deployed workers.
+// deployed workers. A .env that exists but cannot be read or parsed is an
+// error - silently falling back to the ambient environment would be the
+// hardest misconfiguration to diagnose.
 func Load[T any]() (*T, error) {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("loading .env: %w", err)
+	}
 
 	cfg := new(T)
 	if err := env.Parse(cfg); err != nil {

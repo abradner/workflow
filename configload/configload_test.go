@@ -63,6 +63,24 @@ func TestLoad_FailsWhenARequiredVariableIsMissing(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestLoad_ReadsDotEnvFromTheWorkingDirectory(t *testing.T) {
+	loadTestSetup(t)
+	require.NoError(t, os.WriteFile(".env", []byte("TEST_CFG_NAME=fromfile\n"), 0o644))
+
+	cfg, err := configload.Load[testConfig]()
+	require.NoError(t, err)
+	assert.Equal(t, "fromfile", cfg.Name)
+}
+
+func TestLoad_SurfacesAMalformedDotEnv(t *testing.T) {
+	loadTestSetup(t)
+	require.NoError(t, os.WriteFile(".env", []byte("NOT A VALID LINE\n"), 0o644))
+
+	_, err := configload.Load[testConfig]()
+	require.Error(t, err, "a present-but-broken .env must not silently fall back to ambient env")
+	assert.ErrorContains(t, err, ".env")
+}
+
 func TestExpandPath_ResolvesHomeAndRelativeSegments(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
