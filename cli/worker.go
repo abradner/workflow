@@ -15,7 +15,9 @@ func newWorkerCmd(opts *Options) *cobra.Command {
 		Short: "Run a long-lived worker against an external Temporal server",
 		Long: "Runs until interrupted, polling Temporal for work. Pair this with --temporal pointing at a real\n" +
 			"server (e.g. one started by docker-compose) - the other subcommands become lightweight clients\n" +
-			"that just start a workflow and wait for this process to execute it.",
+			"that just start a workflow and wait for this process to execute it.\n\n" +
+			"There is no embedded mode for a long-lived worker: with --temporal embedded (the default) or\n" +
+			"unset, this subcommand dials localhost:7233 instead.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			logger := opts.Logger()
