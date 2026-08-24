@@ -5,7 +5,7 @@
 //
 // This logger is for use OUTSIDE Temporal workflow code (the CLI itself,
 // and inside activities via a thin adapter). Workflow functions must use
-// workflow.GetLogger(ctx) instead - see internal/workflows - because
+// workflow.GetLogger(ctx) instead, because
 // Temporal suppresses duplicate logging on workflow replay only when you
 // go through its own logger.
 package logging

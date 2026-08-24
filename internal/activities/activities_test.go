@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/abradner/workflow/filesystem"
 	"github.com/abradner/workflow/internal/activities"
 	"github.com/abradner/workflow/internal/config"
 	"github.com/abradner/workflow/internal/serviceclients/op"
 	"github.com/abradner/workflow/internal/serviceclients/op/optest"
 	"github.com/abradner/workflow/internal/services/awssecrets"
-	"github.com/abradner/workflow/internal/services/filesystem"
 )
 
 func writeFile(t *testing.T, path, content string) {

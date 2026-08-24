@@ -81,10 +81,10 @@ and lessons learned - written for reuse on a future migration of a different Rub
   unit-testable standalone.
 - **`internal/serviceclients/`**: Low-level wrappers strictly decoupled from business logic - `op`
   (1Password CLI via `os/exec`), `keycloak` (plain `net/http`).
-- **`internal/services/`**: Business logic built on the service clients - `filesystem` (the only
-  place raw disk I/O happens outside activities), `awssecrets` (AWS SDK v2, not a CLI wrapper),
-  `onepassword`, `templaterendering`, `keycloaksetup`, `discoversamlcreds`, `endpointmapper`,
-  `workspaceextractor`.
+- **`internal/services/`**: Business logic built on the service clients - `awssecrets` (AWS SDK
+  v2, not a CLI wrapper), `onepassword`, `templaterendering`, `keycloaksetup`,
+  `discoversamlcreds`, `endpointmapper`, `workspaceextractor`. Raw disk I/O lives in the
+  top-level `filesystem/` package, exported so other tools built on this repo can share it.
 - **`internal/activities/`**: Every Temporal activity - the only place non-determinism/I-O is
   allowed to happen from a workflow's perspective. Methods on `*Activities` so real dependencies
   swap for fakes in tests.
@@ -160,7 +160,7 @@ the activity it needs)
 
 | Ruby | Go |
 | --- | --- |
-| `app/services/filesystem_service.rb` | `internal/services/filesystem/service.go` |
+| `app/services/filesystem_service.rb` | `filesystem/service.go` (top-level, exported) |
 | `app/services/aws_secrets_service.rb` | `internal/services/awssecrets/service.go` *(now calls the AWS SDK v2 directly)* |
 | `app/services/one_password_service.rb` | `internal/services/onepassword/service.go` |
 | `app/services/template_rendering_service.rb` | `internal/services/templaterendering/service.go` |
@@ -180,7 +180,7 @@ the activity it needs)
 
 | Ruby | Go |
 | --- | --- |
-| `app/utils/colorized_logger.rb` | `internal/logging/logger.go` |
+| `app/utils/colorized_logger.rb` | `logging/logger.go` (top-level, exported) |
 
 **Tests**: each `spec/**/*_spec.rb` has a same-purpose `*_test.go` next to the Go file it covers
 (e.g. `spec/services/one_password_service_spec.rb` ↔ `internal/services/onepassword/service_test.go`);

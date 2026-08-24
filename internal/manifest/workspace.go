@@ -1,7 +1,7 @@
 // Package manifest models the in-memory tree of Kubernetes/Kustomize files
 // for a single application, and the small set of pure helpers the transformer
 // pipeline uses to read and mutate it. Nothing in this package touches disk -
-// see internal/services/filesystem for that.
+// see the top-level filesystem package for that.
 package manifest
 
 import (

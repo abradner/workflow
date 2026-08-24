@@ -1,7 +1,8 @@
 # Services and service clients
 
-`internal/services/*`, `internal/serviceclients/*`. Everything that talks to the
-outside world.
+`internal/services/*`, `internal/serviceclients/*`, and the top-level `filesystem/`
+package (exported for reuse by other tools built on this repo). Everything that
+talks to the outside world.
 
 Two layers, deliberately separated:
 
@@ -105,7 +106,7 @@ Ruby original did.
 | `keycloaksetup` | Provisions realm, OIDC/SAML clients, groups, seed users |
 | `discoversamlcreds` | Fetches realm public key + SAML descriptor; nil on unreachable |
 | `templaterendering` | Flattens YAML to dotted keys, substitutes `{{ key }}` placeholders |
-| `filesystem` | **The only place raw disk I/O happens** |
+| `filesystem` (top-level, exported) | **The only place raw disk I/O happens** |
 | `workspaceextractor` | Loads base + source overlay into a `manifest.Workspace` |
 | `endpointmapper` | Maps legacy external hostnames onto cluster-local service names |
 
@@ -156,7 +157,7 @@ regression-tested subtleties travelled with them: key order is preserved by
 decoding token-by-token, and `nil` renders as `""` rather than the literal
 `<nil>` that `fmt.Sprint` produces.
 
-### `filesystem`
+### `filesystem` (top-level package)
 
 All disk I/O funnels through here: listing, reading, writing, YAML decode. Kept
 in one place so everything else stays pure and testable.

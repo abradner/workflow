@@ -1,7 +1,8 @@
 // Package filesystem is the one place raw disk I/O happens: listing
-// directories and reading/writing files. Everything here is a Temporal
-// activity target - see internal/activities. YAML text rendering itself is
-// pure and lives in internal/manifest instead.
+// directories and reading/writing files. It is written to be called from
+// Temporal activities (never from workflow code); YAML text rendering
+// itself is pure and belongs with the consumer's own manifest/rendering
+// code, not here.
 package filesystem
 
 import (
@@ -9,10 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/abradner/workflow/internal/manifest"
 )
 
 // Service wraps the filesystem operations the workflow engine needs.
@@ -22,7 +22,7 @@ type Service struct{}
 func New() *Service { return &Service{} }
 
 // ListDirectories returns every directory under basePath matching pattern
-// (a glob, e.g. "wtf-*"), sorted for repeatable output.
+// (a glob, e.g. "app-*"), sorted for repeatable output.
 func (s *Service) ListDirectories(basePath, pattern string) ([]string, error) {
 	if !s.DirectoryExists(basePath) {
 		return nil, fmt.Errorf("source directory %s does not exist", basePath)
@@ -92,7 +92,8 @@ func (s *Service) WriteFile(path, content string) error {
 
 // IsYAML reports whether path looks like a YAML file by extension.
 func (s *Service) IsYAML(path string) bool {
-	return manifest.IsYAMLPath(path)
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".yaml" || ext == ".yml"
 }
 
 // ReadYAML parses a YAML file into a generic document tree: map[string]any
