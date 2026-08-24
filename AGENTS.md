@@ -82,6 +82,10 @@ the platform's first consumer. Platform packages must never import `internal/`.
   Engine lives in `cmd/workflow/engine.go`.
 - **`configload/`**: godotenv + caarlos0/env harness (`Load[T]`, `ExpandPath`) behind each
   consumer's own Config struct. Config loads on the worker, via a LoadConfig activity.
+- **`converge/`**: Human-in-the-loop machinery for two-pass workflows - `Question`/`Answer`
+  types, the interactive `Prompter`, pre-supplied-answer matching (`Apply`), non-interactive
+  `UnresolvedError`, and `SavePlan`/`LoadPlan` with a `GeneratedAt` freshness stamp. CLI-side
+  only: workflows never prompt; a decision crosses the boundary as ordinary input/result data.
 - **`logging/`**: Colorized console logger for CLI/activity code (never workflow code).
 - **`filesystem/`**: Raw disk I/O service - the platform's only place files get touched.
 
