@@ -109,10 +109,11 @@ else
 fi
 ```
 
-As of 2026-08 this repo probes **stacked available**. That does not make
-stacked the default: the beta's observed merge modes cannot produce per-PR
-merge commits, so a stacked batch lands its interstitials squash-merged.
-**Put that trade to the operator before fan-out; never assume it.**
+As of 2026-08 this repo probes **stacked available**, and GitHub stacking is
+now **GA** (the operator has said to prefer this flavour where relevant). The
+per-PR merge-commit trade still stands: a stacked batch lands its
+interstitials squash-merged. **Name that trade in the fan-out report; the
+operator has accepted it as the default here.**
 
 Record the flavour in each PR's Batch block. **A batch normally finishes in the
 flavour it started**, and stacked → manual via `gh stack unstack` is the routine
@@ -417,25 +418,34 @@ Write-only feedback, the self-review, the round cap, the showstopper bar and
 the Phase 7 operator gate are all identical. Only the branch and merge plumbing
 differs.
 
-**Status here.** This repo probes **stacked available** (2026-08) and has now
-run one stacked batch: `op-contract-docs` (#5–#7 plus followup #9), which
-merged cleanly via "Squash and merge stack".
+**Status here.** Stacking is GA (2026-08) and this repo has run two stacked
+batches: `op-contract-docs` (#5–#7 plus followup #9, merged via the web
+"Squash and merge stack" button) and `platform-extraction` (#22–#26 plus
+followup #28 as stack #27, merged via `gh stack merge` from the CLI).
 
-What that batch actually confirmed, as distinct from what is still inherited:
+What those batches actually confirmed, as distinct from what is still inherited:
 
 - **`gh stack link` adopts existing PRs safely.** Used to convert a
   hand-managed stack mid-flight; branch SHAs were untouched, bases survived,
   and review context on all three PRs was preserved.
 - **Linking a followup into the stack works** (`gh stack link <stack-number> <branch-or-pr>`),
   and the squash train merged it last without incident.
-- **The platform merge gate is real**: `gh pr merge` refuses stacked PRs, so
-  the operator gate stops being policy and becomes mechanism.
+- **The platform merge gate is real**: `gh pr merge` refuses stacked PRs.
+  But GA added `gh stack merge` (below), which an agent CAN run - so the
+  operator gate is **policy again**, and binds exactly as it always did.
+- **GA `gh stack link` handles fresh stacks and followup insertion**
+  (batch platform-extraction): `gh stack link 22 23 24 25 26` created stack
+  #27 from hand-opened PRs with branch SHAs untouched, and re-running it
+  with the followup appended (`gh stack link 22 23 24 25 26 28`) inserted
+  the followup as the sixth member.
+- **GA auto-deletes head branches on merge** - the manual flavour's
+  careful retarget-then-delete choreography is handled by the platform.
 
 Everything else below is still inherited from a sibling repo's probe and
 **unconfirmed here** — in particular `gh stack rebase`/`sync` behaviour and the
-`unstack` degrade path, none of which that batch had cause to exercise. Keep this branch of the workflow current even while running manual:
-`gh stack` is a preview feature and could be withdrawn, in which case the manual
-flavour is not a fallback but the only path.
+`unstack` degrade path, which no batch has yet had cause to exercise. The
+extension is GA now, so withdrawal risk has receded — but keep the manual
+flavour current anyway; it remains the degrade path.
 
 - **Fan-out (Phase 3).** Branch via the tooling: `gh stack init <b1>`, commit,
   `gh stack add <b2>`, commit, … Use **virgin branch names** — `init`/`add`
@@ -470,13 +480,18 @@ flavour is not a fallback but the only path.
   a live batch and the squash train merged the followup last, in order. If it
   ever does misbehave, don't fight it — leave the followup an ordinary PR on
   the cap and finish with the manual Phase 7 choreography.
-- **Merge (Phase 7).** The operator gate becomes **platform-enforced**:
-  `gh pr merge` refuses stacked PRs and the merge control is the web UI's stack
-  button only, so the agent's merge phase reduces to verify-ready, report, stop.
-  "Squash and merge stack" lands one squash commit per PR, bottom-up — the
-  trade accepted at Phase 1. Do **not** use "Create a merge commit stack"
-  expecting per-PR merge boundaries: observed, it lands the raw commits under a
-  single wrapper merge of the *top* PR, every PR sharing one merge commit.
+- **Merge (Phase 7).** GA gives two controls, and **both obey only the
+  operator's explicit go-ahead** — `gh pr merge` still refuses stacked PRs,
+  but `gh stack merge <stack-number> --yes --squash` runs the whole train
+  from the CLI (atomic, all-or-nothing, bottom-up, one squash commit per
+  PR; confirmed on batch platform-extraction, which also confirmed head
+  branches are auto-deleted afterwards). Always pass an explicit merge
+  method: without one, --yes silently reuses the last-used method. The web
+  UI's "Squash and merge stack" button remains equivalent. Do **not** use
+  merge-commit mode expecting per-PR merge boundaries: observed (beta), it
+  lands the raw commits under a single wrapper merge of the *top* PR.
+  Pre-flight (followup in the train, followup based on the cap) is
+  unchanged and matters MORE now that the train is one command.
 - **Fallback.** If anything breaks mid-batch — extension vanished, stack API
   errors, an operation misbehaves (a conflict prompt is not misbehaviour) —
   degrade once, permanently, for that batch: `gh stack unstack` dissolves the
