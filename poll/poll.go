@@ -21,7 +21,12 @@ import (
 var ErrBudgetExhausted = errors.New("poll: budget exhausted before completion")
 
 // Until calls check immediately and then every interval until it reports
-// done, for at most budget of total waiting. An immediate first check costs
+// done. The budget bounds SCHEDULING, not completion: no new sleep or check
+// starts once it would overshoot, but a check already in flight runs to its
+// own conclusion, so total workflow time is bounded by budget plus one
+// check's duration - and the check's duration is the caller's to cap, via
+// the activity options its activities run under. A caller needing a hard
+// ceiling sets those timeouts accordingly. An immediate first check costs
 // one extra activity when the answer is obviously "not yet" (e.g. right
 // after triggering a build) - callers who know better can workflow.Sleep
 // once before calling.
@@ -50,10 +55,12 @@ func Until[T any](ctx workflow.Context, interval, budget time.Duration, check fu
 			return result, nil
 		}
 
-		// Give up when the next wait would overshoot the deadline. The
-		// budget is a bound on WORKFLOW time - workflow.Now advances with
-		// activity completions too, so slow checks consume budget just as
-		// sleeping does; the loop can stop early, never late.
+		// Give up when the next wait would overshoot the deadline.
+		// workflow.Now advances with activity completions too, so slow
+		// checks consume budget just as sleeping does. This is a
+		// scheduling bound: a check that straddles the deadline still
+		// finishes (see the doc comment) - the loop schedules nothing
+		// further after it.
 		if workflow.Now(ctx).Add(interval).After(deadline) {
 			return result, ErrBudgetExhausted
 		}
