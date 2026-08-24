@@ -3,10 +3,11 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/abradner/workflow/cli"
 	"github.com/abradner/workflow/internal/workflows"
 )
 
-func newSyncCmd(opts *globalOptions) *cobra.Command {
+func newSyncCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sync",
 		Short: "Synchronize Kustomize manifests for all workloads",
@@ -14,24 +15,24 @@ func newSyncCmd(opts *globalOptions) *cobra.Command {
 			"transformer pipeline for every target environment, and writes the result to the destination directory.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: opts.DryRun})
+			return cli.Run(cmd.Context(), opts, workflows.SyncWorkloadsWorkflow, workflows.SyncWorkloadsInput{DryRun: opts.DryRun})
 		},
 	}
 }
 
-func newSetupArgoCmd(opts *globalOptions) *cobra.Command {
+func newSetupArgoCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup-argo",
 		Short: "Generate the ArgoCD ApplicationSet covering all apps",
 		Long:  "Generates a single ArgoCD ApplicationSet with a matrix generator (envs x apps), expanding into one Application per app x environment mapped to its overlay path.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.GenerateArgocdWorkflow, workflows.GenerateArgocdInput{DryRun: opts.DryRun})
+			return cli.Run(cmd.Context(), opts, workflows.GenerateArgocdWorkflow, workflows.GenerateArgocdInput{DryRun: opts.DryRun})
 		},
 	}
 }
 
-func newSync1PasswordCmd(opts *globalOptions) *cobra.Command {
+func newSync1PasswordCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "sync-1p",
 		Short: "Sync AWS Secrets Manager secrets into 1Password",
@@ -40,7 +41,7 @@ func newSync1PasswordCmd(opts *globalOptions) *cobra.Command {
 			"Secure Note per environment.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: opts.DryRun})
+			return cli.Run(cmd.Context(), opts, workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{DryRun: opts.DryRun})
 		},
 	}
 }
@@ -51,7 +52,7 @@ func newSync1PasswordCmd(opts *globalOptions) *cobra.Command {
 // A flag is one keystroke from a routine sync and reads as a modifier; a
 // separate verb has to be chosen. Everything this tool deletes is deleted
 // because someone typed the word.
-func newPrune1PasswordCmd(opts *globalOptions) *cobra.Command {
+func newPrune1PasswordCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune-1p",
 		Short: "Sync secrets into 1Password AND remove vault fields this run did not write",
@@ -62,7 +63,7 @@ func newPrune1PasswordCmd(opts *globalOptions) *cobra.Command {
 			"you which. Deletion is not recoverable through this tool.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{
+			return cli.Run(cmd.Context(), opts, workflows.Sync1PasswordWorkflow, workflows.Sync1PasswordInput{
 				DryRun: opts.DryRun,
 				Prune:  true,
 			})
@@ -70,7 +71,7 @@ func newPrune1PasswordCmd(opts *globalOptions) *cobra.Command {
 	}
 }
 
-func newRenderTalosCmd(opts *globalOptions) *cobra.Command {
+func newRenderTalosCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "render-talos",
 		Short: "Hydrate Talos cluster templates from a 1Password Secure Note",
@@ -78,18 +79,18 @@ func newRenderTalosCmd(opts *globalOptions) *cobra.Command {
 			"and substitutes \"{{ dotted.key }}\" placeholders in every *.template.yaml file.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: opts.DryRun})
+			return cli.Run(cmd.Context(), opts, workflows.RenderTalosWorkflow, workflows.RenderTalosInput{DryRun: opts.DryRun})
 		},
 	}
 }
 
-func newSetupKeycloakCmd(opts *globalOptions) *cobra.Command {
+func newSetupKeycloakCmd(opts *cli.Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "setup-keycloak",
 		Short: "Provision the Keycloak realm, clients, groups, and users for every environment",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWorkflow(cmd.Context(), opts, workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{DryRun: opts.DryRun})
+			return cli.Run(cmd.Context(), opts, workflows.SetupKeycloakWorkflow, workflows.SetupKeycloakInput{DryRun: opts.DryRun})
 		},
 	}
 }

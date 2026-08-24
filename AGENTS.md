@@ -63,9 +63,10 @@ and lessons learned - written for reuse on a future migration of a different Rub
 
 ## File Layout & Separation of Concerns
 
-- **`cmd/workflow/`**: CLI entry point (cobra). Each subcommand loads `Config`, builds that
-  workflow's input, and runs it via `internal/temporalutil` - embedded (in-process dev server) or
-  external (dial an existing server; pairs with the `worker` subcommand).
+- **`cmd/workflow/`**: CLI entry point: `main.go` names the app, `engine.go` defines its
+  Temporal surface, `commands.go` defines the subcommands - each a one-line wrapper around
+  `cli.Run` (platform `cli/` package), which runs embedded (in-process dev server) or external
+  (dial an existing server; pairs with the platform-provided `worker` subcommand).
 - **`internal/config/`**: Env-driven `Config` struct (`.env` via godotenv + struct tags via
   caarlos0/env). One flat struct threaded through workflow → activity inputs as needed.
 - **`internal/domain/`**: Small framework-free value types shared across packages -
@@ -91,9 +92,10 @@ and lessons learned - written for reuse on a future migration of a different Rub
 - **`internal/workflows/`**: The five Temporal workflows, one per CLI command. See the package doc
   comment in `internal/workflows/support.go` and each file's doc comment for what it does and why
   it's structured the way it is.
-- **`internal/temporalutil/`**: Wires up the two run modes (embedded via
-  `go.temporal.io/server/temporaltest`, external via `client.Dial`) and the shared
-  workflow/activity registration list.
+- **`temporalutil/`** (top-level, exported): Wires up the two run modes (embedded via
+  `go.temporal.io/server/temporaltest` in subpackage `temporalutil/embedded`, external via
+  `client.Dial`) around a consumer-defined `Engine{TaskQueue, Register}`; also the platform's
+  activity-call conventions. This repo's own Engine lives in `cmd/workflow/engine.go`.
 
 ## Ruby → Go File Map
 
@@ -104,7 +106,7 @@ reference (see the README's note on it). This is the file-by-file correspondence
 
 | Ruby (`ruby-legacy/`) | Go |
 | --- | --- |
-| `workflow.rb` | `cmd/workflow/main.go`, `root.go`, `commands.go`, `run.go`, `worker.go` |
+| `workflow.rb` | `cmd/workflow/main.go`, `engine.go`, `commands.go` (thin wrappers over the platform `cli/` package) |
 | `config/config.rb` | `internal/config/config.go` |
 
 **Framework - superseded, not ported 1:1** (Temporal's workflow/activity model replaces the concept
@@ -113,7 +115,7 @@ entirely; see "Architecture: Workflow Contract" below)
 | Ruby | Go |
 | --- | --- |
 | `app/workflow/orchestrator.rb` | *(none - `internal/workflows/*.go` are plain functions, no base class)* |
-| `app/workflow/runner.rb` | *(none - `internal/temporalutil/` + Temporal itself)* |
+| `app/workflow/runner.rb` | *(none - `temporalutil/` + Temporal itself)* |
 | `app/workflow/execution_context.rb` | *(none - `workflow.Context` plus each workflow's own `Input`/`Result` structs)* |
 
 **Hydration → Activities** (no longer a separate predicate-driven phase - each workflow just calls
@@ -188,7 +190,7 @@ the activity it needs)
 `internal/workflows/*_test.go` using Temporal's `testsuite` package instead of RSpec doubles.
 
 **New in Go, no Ruby counterpart**: `internal/activities/` (the Temporal I/O boundary itself -
-Ruby had no equivalent framework concept) and `internal/temporalutil/` (embedded/external Temporal
+Ruby had no equivalent framework concept) and `temporalutil/` (embedded/external Temporal
 wiring).
 
 ## Architecture: Workflow Contract
