@@ -5,12 +5,9 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/caarlos0/env/v11"
-	"github.com/joho/godotenv"
+	"github.com/abradner/workflow/configload"
 )
 
 // Config holds every environment-driven setting the workflow engine needs.
@@ -77,19 +74,19 @@ type Config struct {
 // ADDITIONAL_EXACT_SECRETS entry.
 const sourceEnvPlaceholder = "{{source_env}}"
 
-// Load reads Config from the environment, loading a .env file first if one
-// exists (missing is fine - same as the original tool's dotenv/load).
+// Load reads Config from the environment via the platform's configload
+// harness (which loads a .env file first if one exists - missing is fine,
+// same as the original tool's dotenv/load), then applies this tool's own
+// post-processing.
 func Load() (*Config, error) {
-	_ = godotenv.Load()
-
-	cfg := &Config{}
-	if err := env.Parse(cfg); err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
+	cfg, err := configload.Load[Config]()
+	if err != nil {
+		return nil, err
 	}
 	cfg.ExternalSecretsAPIVersion = "external-secrets.io/v1"
 
 	for _, dir := range []*string{&cfg.SourceDir, &cfg.DestDir, &cfg.ClusterAppsDir, &cfg.TalosTemplateDir} {
-		expanded, err := expandPath(*dir)
+		expanded, err := configload.ExpandPath(*dir)
 		if err != nil {
 			return nil, fmt.Errorf("resolving path %q: %w", *dir, err)
 		}
@@ -112,17 +109,4 @@ func Load() (*Config, error) {
 	cfg.AdditionalExactSecrets = exact
 
 	return cfg, nil
-}
-
-// expandPath resolves ~ and relative segments to an absolute path, mirroring
-// Ruby's File.expand_path.
-func expandPath(path string) (string, error) {
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
-	}
-	return filepath.Abs(path)
 }

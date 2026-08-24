@@ -34,8 +34,10 @@ plain input value, and no command calls `config.Load()`. See below.
 
 ## `internal/config`
 
-One `Config` struct, populated from the environment by `caarlos0/env` struct
-tags, with `godotenv` loading a `.env` file first if present.
+One `Config` struct, populated via the platform's `configload.Load[Config]`
+(`caarlos0/env` struct tags, with `godotenv` loading a `.env` file first if
+present - resolved against the worker's working directory), followed by this
+tool's own post-processing.
 
 ```go
 SourceDir    string   `env:"SOURCE_DIR,required"`
@@ -43,7 +45,7 @@ Environments []string `env:"TARGET_ENVS,required" envSeparator:","`
 ```
 
 `required` means a missing variable fails at load with the variable named.
-Directory paths run through `expandPath`, which resolves `~` and relative
+Directory paths run through the platform's `configload.ExpandPath`, which resolves `~` and relative
 segments to absolute — mirroring Ruby's `File.expand_path`.
 
 ### Config is loaded by the worker, never the client
