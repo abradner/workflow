@@ -41,10 +41,10 @@ Environments []string `env:"TARGET_ENVS,required" envSeparator:","`
 ```
 
 `required` means a missing variable fails at load with the variable named.
-Directory paths run through the platform's `configload.ExpandPath` (bare `~` and `~/`
-expand; `~user` does not; an empty value resolves to the worker's cwd, since `required`
-means set-not-non-empty), which resolves `~` and relative
-segments to absolute — mirroring Ruby's `File.expand_path`.
+Directory paths run through the platform's `configload.ExpandPath`, which resolves a
+leading `~` (bare `~` and `~/` expand; `~user` does not) and relative segments to
+absolute paths, mirroring Ruby's `File.expand_path`. An empty value resolves to the
+worker's cwd, since `required` means set-not-non-empty.
 
 ### Config is loaded by the worker, never the client
 
