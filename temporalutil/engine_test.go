@@ -1,7 +1,10 @@
 package temporalutil_test
 
 import (
+	"context"
 	"testing"
+
+	"go.temporal.io/sdk/worker"
 
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/server/common/namespace"
@@ -27,4 +30,16 @@ func TestStartOptions_BoundsEveryRun(t *testing.T) {
 	assert.Equal(t, temporalutil.WorkflowRunTimeout, opts.WorkflowRunTimeout,
 		"StartOptions must use the package's configured timeout, whatever it becomes")
 	assert.NotZero(t, opts.WorkflowRunTimeout, "an unbounded run has no history TTL either")
+}
+
+// A zero-value Engine (e.g. an Options built outside cli.New) must fail with
+// a description, not a panic deep inside worker registration.
+func TestEngineValidate_RejectsIncompleteEngines(t *testing.T) {
+	register := func(context.Context, worker.Registry) error { return nil }
+
+	assert.ErrorContains(t, temporalutil.Engine{}.Validate(), "TaskQueue")
+	assert.ErrorContains(t, temporalutil.Engine{TaskQueue: "q"}.Validate(), "Register")
+	assert.ErrorContains(t, temporalutil.Engine{Register: register}.Validate(), "TaskQueue",
+		"missing queue is reported even when Register is set")
+	assert.NoError(t, temporalutil.Engine{TaskQueue: "q", Register: register}.Validate())
 }

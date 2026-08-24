@@ -1,35 +1,31 @@
 # CLI, configuration and runtime
 
-`cmd/workflow`, `internal/config`, `internal/temporalutil`, `internal/logging`.
+`cmd/workflow`, `internal/config`, and the platform packages `cli`, `temporalutil`,
+`configload`, `logging`.
 
-## `cmd/workflow`
+## `cmd/workflow` and the platform `cli/` package
 
-Cobra CLI. Five workflow commands plus `worker`.
+`cmd/workflow` is deliberately thin - the lightweight-consumer shape every tool
+built on this platform should have:
 
 | File | Holds |
 |---|---|
-| `main.go` | entry point |
-| `root.go` | root command, shared flags, logger construction |
-| `commands.go` | the five workflow subcommands |
-| `run.go` | the generic `runWorkflow` helper |
-| `worker.go` | the long-lived worker subcommand |
+| `main.go` | names the app (`cli.App{Name, Short, Engine}`) and lists the subcommand factories |
+| `engine.go` | the tool's Temporal surface: task queue + `registerAll` (every workflow and activity) |
+| `commands.go` | one factory per subcommand; each `RunE` is a one-line `cli.Run(...)` call |
 
-Every subcommand is a thin shell over one generic function:
+Everything generic lives in the exported `cli/` package: the global
+`--dry-run`/`--verbose`/`--temporal` flags, the always-added `worker`
+subcommand, and `cli.Run[TIn, TOut]` - the generic start-a-workflow-and-wait
+wrapper. It picks the run mode from `--temporal`, dispatches to `embedded.Run`
+or `temporalutil.RunExternal`, and logs the result. Adding a command means
+writing the workflow and a few lines of factory wiring.
 
-```go
-func runWorkflow[TIn, TOut any](
-    ctx context.Context,
-    opts *globalOptions,
-    workflowFn func(workflow.Context, TIn) (TOut, error),
-    input TIn,
-) error
-```
+Flag values are bound by cobra between construction and `RunE`, so factories
+must read `Options` fields only inside `RunE` - reading at construction time
+freezes the defaults.
 
-It picks the run mode from `--temporal`, dispatches to `temporalutil.RunEmbedded`
-or `RunExternal`, and logs the result. Adding a command means writing the
-workflow and a few lines of Cobra wiring.
-
-Note what the input does **not** contain: configuration. `runWorkflow` takes a
+Note what `cli.Run`'s input does **not** contain: configuration. It takes a
 plain input value, and no command calls `config.Load()`. See below.
 
 ## `internal/config`
@@ -45,8 +41,10 @@ Environments []string `env:"TARGET_ENVS,required" envSeparator:","`
 ```
 
 `required` means a missing variable fails at load with the variable named.
-Directory paths run through the platform's `configload.ExpandPath`, which resolves `~` and relative
-segments to absolute — mirroring Ruby's `File.expand_path`.
+Directory paths run through the platform's `configload.ExpandPath`, which resolves a
+leading `~` (bare `~` and `~/` expand; `~user` does not) and relative segments to
+absolute paths, mirroring Ruby's `File.expand_path`. An empty value resolves to the
+worker's cwd, since `required` means set-not-non-empty.
 
 ### Config is loaded by the worker, never the client
 
@@ -116,7 +114,7 @@ mutually compatible. `go mod tidy` alone can drift `api` ahead of what `server`
 was built against, producing a missing-interface-method compile error. Bump them
 together, explicitly.
 
-## `internal/logging`
+## `logging` (top-level, exported)
 
 `slog` wrapper providing the colourised console output the Ruby tool had.
 `--verbose` selects debug level. `log.NewStructuredLogger` adapts it to the

@@ -5,11 +5,12 @@
 //
 // This package is platform code: it knows nothing about any consumer's
 // workflows or activities. A consumer describes its Temporal surface once,
-// as an Engine, and passes it to RunEmbedded / RunExternal / RunWorker.
+// as an Engine, and passes it to embedded.Run / RunExternal / RunWorker.
 package temporalutil
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.temporal.io/sdk/client"
@@ -29,6 +30,21 @@ type Engine struct {
 	// ctx. A worker registered this way can run any of the consumer's
 	// commands. Called once per worker, on the machine the worker runs on.
 	Register func(ctx context.Context, r worker.Registry) error
+}
+
+// Validate reports whether the Engine is complete enough to run a worker:
+// embedded.Run and RunWorker require both fields. (RunExternal starts no
+// worker and needs only the task queue.) A zero-value Engine - e.g. from an
+// Options struct built outside cli.New - fails here with a description
+// instead of panicking inside the SDK.
+func (e Engine) Validate() error {
+	if e.TaskQueue == "" {
+		return errors.New("temporalutil: Engine.TaskQueue must not be empty")
+	}
+	if e.Register == nil {
+		return errors.New("temporalutil: Engine.Register must not be nil")
+	}
+	return nil
 }
 
 // HistoryRetention is the intended namespace retention for engines built on
@@ -65,7 +81,7 @@ const HistoryRetention = time.Hour
 const WorkflowRunTimeout = time.Hour
 
 // StartOptions are the options ROOT workflow executions start with - the ones
-// RunEmbedded and RunExternal launch. Child workflows inherit their parent's
+// embedded.Run and RunExternal launch. Child workflows inherit their parent's
 // deadline rather than these, and testsuite executions bypass them entirely,
 // so this is not a global policy hook.
 func StartOptions(taskQueue string) client.StartWorkflowOptions {

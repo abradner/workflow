@@ -20,7 +20,8 @@ import (
 
 // Run starts an in-process Temporal dev server (backed by an in-memory
 // SQLite persistence layer - the same engine `temporal server start-dev`
-// uses), a worker registered with the engine's every workflow and activity,
+// uses), a worker registered with every workflow and activity the engine
+// defines,
 // executes workflowFn with input, waits for the result, and tears
 // everything down. One process, no external dependencies at all - the mode
 // for quick local runs.
@@ -30,6 +31,10 @@ import (
 // temporalutil.RunExternal against a real server instead.
 func Run[TIn, TOut any](ctx context.Context, eng temporalutil.Engine, workflowFn func(workflow.Context, TIn) (TOut, error), input TIn) (TOut, error) {
 	var zero TOut
+
+	if err := eng.Validate(); err != nil {
+		return zero, err
+	}
 
 	ts := temporaltest.NewServer()
 	defer ts.Stop()

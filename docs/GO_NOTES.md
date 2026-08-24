@@ -141,7 +141,7 @@ func runActivity[T any](ctx workflow.Context, activityFn any, args ...any) (T, e
 consistently" - calling `runActivity[activities.DiscoverAppsResult](...)` fixes T for that call, so
 the return value comes back already typed, instead of every call site duplicating the
 declare-a-variable-and-call-Get dance. See `internal/workflows/support.go` and
-`temporalutil/embedded.go` (`RunEmbedded[TIn, TOut any]`) - the same pattern lets five
+`temporalutil/embedded/embedded.go` (`Run[TIn, TOut any]`) - the same pattern lets five
 different workflows, each with distinct input/output types, share one runner function.
 
 ## 7. Temporal: why a workflow is not just a function call
@@ -201,7 +201,7 @@ tests in `internal/transformers/` - same `testing.T`, same `testify/assert`, jus
 step for anything that touches a workflow function specifically.
 
 For genuinely wanting a real server locally, `go.temporal.io/server/temporaltest` (used in
-`temporalutil/embedded.go`) spins up a full, real Temporal server backed by an in-memory
+`temporalutil/embedded/embedded.go`) spins up a full, real Temporal server backed by an in-memory
 SQLite database in a few hundred milliseconds - the same engine behind `temporal server start-dev`,
 but embeddable directly in a Go program instead of a separate process.
 
