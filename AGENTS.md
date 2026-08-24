@@ -46,7 +46,8 @@ Two rules that are easy to violate without noticing, both explained in
 
 ## Repository Overview
 
-`workflow` is a Go + Temporal ETL pipeline: five workflows that discover, extract, transform, and
+`workflow` is a Go + Temporal ETL pipeline: five workflows behind six CLI commands (`prune-1p`
+reuses the sync-1p workflow with `Prune` set) that discover, extract, transform, and
 commit Kubernetes/GitOps manifests, AWS→1Password secret migrations, Talos template hydration, and
 Keycloak provisioning. It's a from-scratch Go rebuild of an earlier Ruby version (see git history
 before this rebuild) - same jobs, same `.env` configuration surface, same output; Temporal replaces
@@ -63,12 +64,34 @@ and lessons learned - written for reuse on a future migration of a different Rub
 
 ## File Layout & Separation of Concerns
 
-- **`cmd/workflow/`**: CLI entry point: `main.go` names the app, `engine.go` defines its
-  Temporal surface, `commands.go` defines the subcommands - each a one-line wrapper around
-  `cli.Run` (platform `cli/` package), which runs embedded (in-process dev server) or external
-  (dial an existing server; pairs with the platform-provided `worker` subcommand).
-- **`internal/config/`**: Env-driven `Config` struct (`.env` via godotenv + struct tags via
-  caarlos0/env). One flat struct threaded through workflow → activity inputs as needed.
+This repo is becoming a reusable **platform**: the exported top-level packages (`cli/`,
+`temporalutil/`, `configload/`, `logging/`, `filesystem/`) are consumer-agnostic library code that
+other tools import; everything under `internal/` plus `cmd/workflow/` is this tool's own domain —
+the platform's first consumer. Platform packages must never import `internal/`.
+
+**Platform packages (exported):**
+
+- **`cli/`**: The command-line harness. A consumer passes an `App{Name, Short, Engine}` and its
+  command factories to `cli.New` and gets the global `--dry-run/--verbose/--temporal` flags, the
+  `worker` subcommand, and `cli.Run` (the generic start-a-workflow-and-wait wrapper) for free.
+- **`temporalutil/`**: Wires up the two run modes (embedded via
+  `go.temporal.io/server/temporaltest` in subpackage `temporalutil/embedded` - a subpackage so
+  importing the core never links the server, external via `client.Dial`) around a
+  consumer-defined `Engine{TaskQueue, Register}`, plus the platform's activity-call conventions
+  (`DefaultActivityOptions`, `NonRetryingActivityOptions`, `RunActivity`). This repo's own
+  Engine lives in `cmd/workflow/engine.go`.
+- **`configload/`**: godotenv + caarlos0/env harness (`Load[T]`, `ExpandPath`) behind each
+  consumer's own Config struct. Config loads on the worker, via a LoadConfig activity.
+- **`logging/`**: Colorized console logger for CLI/activity code (never workflow code).
+- **`filesystem/`**: Raw disk I/O service - the platform's only place files get touched.
+
+**This tool's own code (the first consumer):**
+
+- **`cmd/workflow/`**: CLI entry point: `main.go` names the app, `engine.go` defines its Temporal
+  surface (task queue + workflow/activity registration), `commands.go` defines the six
+  subcommands - each a one-line wrapper around `cli.Run`.
+- **`internal/config/`**: Env-driven `Config` struct layered on `configload`. One flat struct
+  threaded through workflow → activity inputs as needed.
 - **`internal/domain/`**: Small framework-free value types shared across packages -
   `SamlCredentials`, `ExtractedSecret`, and `internal/domain/kubernetes` (`ExternalSecret`,
   `HTTPRoute` manifest builders).
@@ -84,18 +107,14 @@ and lessons learned - written for reuse on a future migration of a different Rub
   (1Password CLI via `os/exec`), `keycloak` (plain `net/http`).
 - **`internal/services/`**: Business logic built on the service clients - `awssecrets` (AWS SDK
   v2, not a CLI wrapper), `onepassword`, `templaterendering`, `keycloaksetup`,
-  `discoversamlcreds`, `endpointmapper`, `workspaceextractor`. Raw disk I/O lives in the
-  top-level `filesystem/` package, exported so other tools built on this repo can share it.
+  `discoversamlcreds`, `endpointmapper`, `workspaceextractor`.
 - **`internal/activities/`**: Every Temporal activity - the only place non-determinism/I-O is
   allowed to happen from a workflow's perspective. Methods on `*Activities` so real dependencies
   swap for fakes in tests.
-- **`internal/workflows/`**: The five Temporal workflows, one per CLI command. See the package doc
+- **`internal/workflows/`**: The five Temporal workflows behind the six CLI commands
+  (`prune-1p` reuses `Sync1PasswordWorkflow`), plus their per-unit children. See the package doc
   comment in `internal/workflows/support.go` and each file's doc comment for what it does and why
   it's structured the way it is.
-- **`temporalutil/`** (top-level, exported): Wires up the two run modes (embedded via
-  `go.temporal.io/server/temporaltest` in subpackage `temporalutil/embedded`, external via
-  `client.Dial`) around a consumer-defined `Engine{TaskQueue, Register}`; also the platform's
-  activity-call conventions. This repo's own Engine lives in `cmd/workflow/engine.go`.
 
 ## Ruby → Go File Map
 

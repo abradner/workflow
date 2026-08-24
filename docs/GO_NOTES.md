@@ -31,7 +31,7 @@ func (c Config) Summary() string { return c.SourceDir + " -> " + c.DestDir }
 A `struct` is just data (like a Ruby `Struct` or a plain hash with known keys). A `func` with a
 receiver in parens - `(c Config)` - is a *method* on that type, but it's declared separately from
 the struct, often in the same file, sometimes not. There's no inheritance; composition (embedding
-one struct/interface inside another) is how Go shares behavior - see `internal/logging/logger.go`,
+one struct/interface inside another) is how Go shares behavior - see `logging/logger.go`,
 where `Logger` embeds `*slog.Logger` and gets all its methods for free.
 
 **Where to look**: `internal/domain/saml_credentials.go` is the smallest complete example - a
@@ -141,7 +141,7 @@ func runActivity[T any](ctx workflow.Context, activityFn any, args ...any) (T, e
 consistently" - calling `runActivity[activities.DiscoverAppsResult](...)` fixes T for that call, so
 the return value comes back already typed, instead of every call site duplicating the
 declare-a-variable-and-call-Get dance. See `internal/workflows/support.go` and
-`internal/temporalutil/embedded.go` (`RunEmbedded[TIn, TOut any]`) - the same pattern lets five
+`temporalutil/embedded.go` (`RunEmbedded[TIn, TOut any]`) - the same pattern lets five
 different workflows, each with distinct input/output types, share one runner function.
 
 ## 7. Temporal: why a workflow is not just a function call
@@ -201,7 +201,7 @@ tests in `internal/transformers/` - same `testing.T`, same `testify/assert`, jus
 step for anything that touches a workflow function specifically.
 
 For genuinely wanting a real server locally, `go.temporal.io/server/temporaltest` (used in
-`internal/temporalutil/embedded.go`) spins up a full, real Temporal server backed by an in-memory
+`temporalutil/embedded.go`) spins up a full, real Temporal server backed by an in-memory
 SQLite database in a few hundred milliseconds - the same engine behind `temporal server start-dev`,
 but embeddable directly in a Go program instead of a separate process.
 
@@ -348,7 +348,7 @@ A workflow with no natural unit to split on gains nothing from being split.
 `TestWorkflowEnvironment` (§8) executes a real child workflow inline, using the same mocked
 activities as its parent, exactly like a normal (non-child) workflow call - **except** it requires
 the child's workflow function to be explicitly registered first with `env.RegisterWorkflow(...)`,
-the same call you'd make on a real worker (`internal/temporalutil/register.go`). Forget it and the
+the same call you'd make on a real worker (`cmd/workflow/engine.go`'s `registerAll`). Forget it and the
 test panics immediately with `unable to find workflow type: ... Supported types: [...]` naming
 exactly what *is* registered - a clear, fast failure, not a silent no-op. If you ever want to stub a
 child wholesale instead of letting it run for real (useful for a parent-only test where the child's
