@@ -97,3 +97,20 @@ func TestUntil_ACheckErrorAbortsTheLoop(t *testing.T) {
 	require.ErrorContains(t, err, "gitlab exploded")
 	env.AssertExpectations(t)
 }
+
+func TestUntil_RejectsANonPositiveInterval(t *testing.T) {
+	env := newEnv(t)
+	// No mocked probe responses: a zero interval must fail before any check
+	// runs - the alternative is a timerless busy-loop of activity calls.
+	env.ExecuteWorkflow(func(ctx workflow.Context) (probeResult, error) {
+		return poll.Until(ctx, 0, time.Hour, func(workflow.Context) (probeResult, bool, error) {
+			return probeResult{}, false, nil
+		})
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "interval must be positive")
+	env.AssertExpectations(t)
+}

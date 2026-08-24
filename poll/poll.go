@@ -8,6 +8,7 @@ package poll
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
@@ -28,8 +29,16 @@ var ErrBudgetExhausted = errors.New("poll: budget exhausted before completion")
 // check returns (result, done, err): err aborts the loop as a failure;
 // done=true returns result as the answer. On budget exhaustion the last
 // result is returned with ErrBudgetExhausted.
+//
+// interval must be positive: a zero or negative interval would busy-loop
+// activity calls with no timer between them, growing event history as fast
+// as the worker can go. A budget <= 0 is legal and means one check, no
+// waiting.
 func Until[T any](ctx workflow.Context, interval, budget time.Duration, check func(workflow.Context) (T, bool, error)) (T, error) {
 	var zero T
+	if interval <= 0 {
+		return zero, fmt.Errorf("poll: interval must be positive, got %v", interval)
+	}
 	deadline := workflow.Now(ctx).Add(budget)
 
 	for {
@@ -41,8 +50,10 @@ func Until[T any](ctx workflow.Context, interval, budget time.Duration, check fu
 			return result, nil
 		}
 
-		// Give up when the next wait would overshoot the budget: total
-		// sleeping never exceeds it.
+		// Give up when the next wait would overshoot the deadline. The
+		// budget is a bound on WORKFLOW time - workflow.Now advances with
+		// activity completions too, so slow checks consume budget just as
+		// sleeping does; the loop can stop early, never late.
 		if workflow.Now(ctx).Add(interval).After(deadline) {
 			return result, ErrBudgetExhausted
 		}
