@@ -1,6 +1,7 @@
 package converge_test
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,4 +155,53 @@ func TestLoadPlan_RejectsGarbage(t *testing.T) {
 
 	_, _, err = converge.LoadPlan[fakePlan](filepath.Join(t.TempDir(), "missing.json"))
 	assert.Error(t, err)
+}
+
+// --- Followup regression coverage -------------------------------------------
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errPipe }
+
+var errPipe = errors.New("pipe burst")
+
+func TestPrompter_AReadErrorIsNotTreatedAsTheHumanStopping(t *testing.T) {
+	var out strings.Builder
+	p := &converge.Prompter{In: failingReader{}, Out: &out}
+
+	_, err := p.Resolve([]converge.Question{confirmQ("app-one", false)})
+
+	require.Error(t, err)
+	var unresolved *converge.UnresolvedError
+	assert.False(t, errors.As(err, &unresolved), "a real read failure must not masquerade as unresolved questions")
+	assert.Contains(t, err.Error(), "pipe burst")
+}
+
+func TestPrompter_HintShowsWithoutAReason(t *testing.T) {
+	var out strings.Builder
+	p := &converge.Prompter{In: strings.NewReader("\n"), Out: &out}
+
+	q := valueQ("app-one", "") // no Reason
+	_, err := p.Resolve([]converge.Question{q})
+	require.NoError(t, err)
+
+	assert.Contains(t, out.String(), "press Enter to skip",
+		"the Hint contract is per Value question, not per Reason")
+}
+
+func TestPrompter_UnknownStyleFailsFast(t *testing.T) {
+	var out strings.Builder
+	p := &converge.Prompter{In: strings.NewReader("y\n"), Out: &out}
+
+	_, err := p.Resolve([]converge.Question{{Kind: "k", Subject: "s", Style: converge.Style(99)}})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown style",
+		"silently skipping would return fewer answers than questions")
+}
+
+func TestQuestionKey_ColonsInPartsCannotCollide(t *testing.T) {
+	a := converge.Question{Kind: "confirm", Subject: "trigger:app"}
+	b := converge.Question{Kind: "confirm:trigger", Subject: "app"}
+	assert.NotEqual(t, a.Key(), b.Key())
 }

@@ -48,8 +48,10 @@ type Question struct {
 	Hint string
 }
 
-// Key identifies a Question for answer matching: Kind plus Subject.
-func (q Question) Key() string { return q.Kind + ":" + q.Subject }
+// Key identifies a Question for answer matching: Kind plus Subject. The
+// separator is NUL so a ":" (or anything printable) in either part cannot
+// make two different questions collide.
+func (q Question) Key() string { return q.Kind + "\x00" + q.Subject }
 
 // Answer records the resolution of one Question.
 type Answer struct {
