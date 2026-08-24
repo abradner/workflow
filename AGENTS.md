@@ -86,6 +86,9 @@ the platform's first consumer. Platform packages must never import `internal/`.
   types, the interactive `Prompter`, pre-supplied-answer matching (`Apply`), non-interactive
   `UnresolvedError`, and `SavePlan`/`LoadPlan` with a `GeneratedAt` freshness stamp. CLI-side
   only: workflows never prompt; a decision crosses the boundary as ordinary input/result data.
+- **`poll/`**: Durable wait-for-completion loops for workflow code (`Until`: check every
+  interval via workflow timers, bounded by a budget, `ErrBudgetExhausted` carrying the last
+  known state) - the replacement for a CLI tool's `sleep N` busy-wait.
 - **`logging/`**: Colorized console logger for CLI/activity code (never workflow code).
 - **`filesystem/`**: Raw disk I/O service - the platform's only place files get touched.
 
