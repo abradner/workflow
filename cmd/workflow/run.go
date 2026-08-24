@@ -7,7 +7,8 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/abradner/workflow/internal/temporalutil"
+	"github.com/abradner/workflow/temporalutil"
+	"github.com/abradner/workflow/temporalutil/embedded"
 )
 
 // runWorkflow runs a workflow (embedded or external per opts.Temporal) and
@@ -38,10 +39,10 @@ func runWorkflow[TIn, TOut any](
 	var err error
 	if opts.Temporal == "" || opts.Temporal == "embedded" {
 		logger.Info("Running against an embedded, in-process Temporal server")
-		result, err = temporalutil.RunEmbedded(ctx, workflowFn, input)
+		result, err = embedded.Run(ctx, engine, workflowFn, input)
 	} else {
 		logger.Info("Running against external Temporal server", "target", opts.Temporal)
-		result, err = temporalutil.RunExternal(ctx, opts.Temporal, log.NewStructuredLogger(logger.Logger), workflowFn, input)
+		result, err = temporalutil.RunExternal(ctx, opts.Temporal, log.NewStructuredLogger(logger.Logger), engine, workflowFn, input)
 	}
 	if err != nil {
 		return err
