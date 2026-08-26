@@ -130,7 +130,8 @@ Adopt existing PRs with **`gh stack link <branch|pr>...`** (bottom to top), not
 are, and needs no local tracking state — so branch SHAs are untouched and
 existing review context survives. Verify afterwards that each PR's base is
 unchanged and no branch was rewritten. Then update every Batch block: flavour,
-the reason, and the fact that merging is now the web UI stack button.
+the reason, and the selected merge control (`gh stack merge` or the web UI
+stack button).
 
 Do not take this transition to escape a problem — that is what the one-way
 degrade is for. Take it only when the multi-commit condition genuinely holds.
@@ -391,7 +392,9 @@ ready, say so and stop.
    deliberately targets `main` for the aggregate review; if the retarget was
    missed, squash-merging it collapses the entire stack into one commit.
 
-Then, per interstitial bottom-up:
+Then — **manual flavour only**; a stacked batch replaces this whole
+choreography with `gh stack merge` (see the stacked deltas) — per
+interstitial bottom-up:
 
 1. `gh pr merge <n> --merge` — **no `--delete-branch`**.
 2. Poll `gh pr view <n> --json state,mergedAt` until `MERGED`. A returned
@@ -512,8 +515,9 @@ flavour current anyway; it remains the degrade path.
 - Feedback is write-only until synthesis. No replies, no mid-stack pushes.
 - Interstitials get Copilot's one round on open. Codex is invocation-only and
   aggregate-first: 2–3 invocations per batch, total.
-- Interstitials: one commit each, merge-committed. Followup: N commits,
-  squash-merged, release gate.
+- Interstitials: one commit each — merge-committed (manual flavour) or one
+  squash commit per PR (stacked). Followup: N commits, squash-merged,
+  release gate.
 - Merge `main` into a batch branch only when the world moved for reasons
   outside the batch — then effective-diff audit afterwards.
 - Merge bottom-up. Never rebase a reviewed branch (manual flavour). Retarget

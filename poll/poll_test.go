@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/temporal"
@@ -96,4 +97,66 @@ func TestUntil_ACheckErrorAbortsTheLoop(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "gitlab exploded")
 	env.AssertExpectations(t)
+}
+
+func TestUntil_RejectsANonPositiveInterval(t *testing.T) {
+	env := newEnv(t)
+	// No mocked probe responses: a zero interval must fail before any check
+	// runs - the alternative is a timerless busy-loop of activity calls.
+	env.ExecuteWorkflow(func(ctx workflow.Context) (probeResult, error) {
+		return poll.Until(ctx, 0, time.Hour, func(workflow.Context) (probeResult, bool, error) {
+			return probeResult{}, false, nil
+		})
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	require.ErrorContains(t, err, "interval must be positive")
+	env.AssertExpectations(t)
+}
+
+// parentWorkflow runs pollingWorkflow as a CHILD workflow and reports how the
+// exhaustion error survives the boundary: Temporal reconstructs it, so
+// pointer-identity errors.Is fails and only IsBudgetExhausted holds.
+func parentWorkflow(ctx workflow.Context) (parentVerdict, error) {
+	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{})
+
+	err := workflow.ExecuteChildWorkflow(ctx, pollingWorkflow, 25*time.Second).Get(ctx, nil)
+	return parentVerdict{
+		SawError:         err != nil,
+		ErrorsIsMatches:  errors.Is(err, poll.ErrBudgetExhausted),
+		HelperRecognizes: poll.IsBudgetExhausted(err),
+	}, nil
+}
+
+type parentVerdict struct {
+	SawError         bool
+	ErrorsIsMatches  bool
+	HelperRecognizes bool
+}
+
+func TestIsBudgetExhausted_SurvivesTheChildWorkflowBoundary(t *testing.T) {
+	env := newEnv(t)
+	env.RegisterWorkflow(pollingWorkflow)
+	env.OnActivity(probe, mock.Anything).Return(probeResult{Status: "running"}, nil).Times(3)
+
+	env.ExecuteWorkflow(parentWorkflow)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var v parentVerdict
+	require.NoError(t, env.GetWorkflowResult(&v))
+	require.True(t, v.SawError)
+	assert.False(t, v.ErrorsIsMatches,
+		"documented trap: pointer identity does not survive serialization - this is why errors.Is is not the contract")
+	assert.True(t, v.HelperRecognizes,
+		"IsBudgetExhausted must recognize exhaustion on the parent side of the boundary")
+	env.AssertExpectations(t)
+}
+
+func TestIsBudgetExhausted_DoesNotMatchACheckFailure(t *testing.T) {
+	assert.False(t, poll.IsBudgetExhausted(errors.New("gitlab exploded")))
+	assert.True(t, poll.IsBudgetExhausted(poll.ErrBudgetExhausted))
 }

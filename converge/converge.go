@@ -15,12 +15,15 @@ import (
 	"strings"
 )
 
-// Style says how a Question is answered.
+// Style says how a Question is answered. The zero value is deliberately
+// invalid: an uninitialized Question or answer stub must fail loudly, not
+// impersonate a Confirm.
 type Style int
 
 const (
+	styleUnset Style = iota
 	// Confirm is a yes/no question; bare Enter takes Question.Default.
-	Confirm Style = iota
+	Confirm
 	// Value asks for a text value; bare Enter skips (empty Value).
 	Value
 )
@@ -48,8 +51,10 @@ type Question struct {
 	Hint string
 }
 
-// Key identifies a Question for answer matching: Kind plus Subject.
-func (q Question) Key() string { return q.Kind + ":" + q.Subject }
+// Key identifies a Question for answer matching: Kind plus Subject. The
+// separator is NUL so a ":" (or anything printable) in either part cannot
+// make two different questions collide.
+func (q Question) Key() string { return q.Kind + "\x00" + q.Subject }
 
 // Answer records the resolution of one Question.
 type Answer struct {
@@ -63,23 +68,43 @@ func (a Answer) Skipped() bool { return a.Question.Style == Value && a.Value == 
 
 // Apply matches pre-supplied answers (from flags or a saved plan) against
 // questions by Key, returning the answers that matched and the questions
-// nothing answered. Supplied answers need only Question.Kind and
-// Question.Subject set; the matched answer carries the full Question.
-func Apply(questions []Question, supplied []Answer) (answered []Answer, remaining []Question) {
+// nothing answered. A supplied answer must set Question.Kind,
+// Question.Subject AND Question.Style; the matched answer carries the full
+// Question.
+//
+// Style is load-bearing, not ceremony: an answer whose style differs from
+// the question it matches is an error, never a silent zero-value. Without
+// that check, Answer{Value: "tag"} matched against a Confirm question
+// would read its zero Confirmed as an explicit decline, and
+// Answer{Confirmed: true} against a Value question would read its zero
+// Value as a skip - a malformed or stale plan changing a deployment
+// decision instead of failing. Duplicate supplied answers for one key
+// resolve last-wins; that is a property of the supply, so it is the
+// supplier's to avoid.
+func Apply(questions []Question, supplied []Answer) (answered []Answer, remaining []Question, err error) {
 	byKey := make(map[string]Answer, len(supplied))
 	for _, a := range supplied {
+		if a.Question.Style == styleUnset {
+			return nil, nil, fmt.Errorf("converge: supplied answer %q must set Style", a.Question.Key())
+		}
 		byKey[a.Question.Key()] = a
 	}
 
 	for _, q := range questions {
-		if a, ok := byKey[q.Key()]; ok {
-			a.Question = q
-			answered = append(answered, a)
-		} else {
+		a, ok := byKey[q.Key()]
+		if !ok {
 			remaining = append(remaining, q)
+			continue
 		}
+		if a.Question.Style != q.Style {
+			return nil, nil, fmt.Errorf(
+				"converge: supplied answer %q has style %d but the question has style %d - refusing to reinterpret its fields",
+				q.Key(), a.Question.Style, q.Style)
+		}
+		a.Question = q
+		answered = append(answered, a)
 	}
-	return answered, remaining
+	return answered, remaining, nil
 }
 
 // UnresolvedError is returned in non-interactive mode when questions remain

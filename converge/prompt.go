@@ -25,19 +25,26 @@ func NewPrompter() *Prompter {
 }
 
 // Resolve asks every question in order and returns one Answer per Question.
-// An input error (EOF, closed pipe) aborts with what remains unresolved as
-// an *UnresolvedError - Ctrl+D mid-session behaves like non-interactive
-// mode rather than fabricating answers.
+// EOF (Ctrl+D, closed pipe) aborts with what remains unresolved as an
+// *UnresolvedError - mid-session it behaves like non-interactive mode
+// rather than fabricating answers. A genuine read error (as opposed to
+// end-of-input) is returned as itself. A Question with an unknown Style is
+// an error: silently skipping one would return fewer answers than
+// questions with nothing signalling why.
 func (p *Prompter) Resolve(questions []Question) ([]Answer, error) {
 	scanner := bufio.NewScanner(p.In)
 	answers := make([]Answer, 0, len(questions))
 
 	for i, q := range questions {
+		if q.Style != Confirm && q.Style != Value {
+			return answers, fmt.Errorf("converge: question %q has unknown style %d", q.Key(), q.Style)
+		}
+
 		if q.Reason != "" {
 			fmt.Fprintf(p.Out, "\n  ⚠ ISSUE: %s\n", q.Reason)
-			if q.Hint != "" {
-				fmt.Fprintf(p.Out, "  You can answer below, or %s.\n", q.Hint)
-			}
+		}
+		if q.Hint != "" && q.Style == Value {
+			fmt.Fprintf(p.Out, "  You can answer below, or %s.\n", q.Hint)
 		}
 
 		switch q.Style {
@@ -48,7 +55,10 @@ func (p *Prompter) Resolve(questions []Question) ([]Answer, error) {
 			}
 			fmt.Fprintf(p.Out, "  ? %s %s > ", q.Prompt, suffix)
 
-			line, ok := readLine(scanner)
+			line, ok, err := readLine(scanner)
+			if err != nil {
+				return answers, fmt.Errorf("converge: reading answer: %w", err)
+			}
 			if !ok {
 				return answers, &UnresolvedError{Questions: questions[i:]}
 			}
@@ -61,7 +71,10 @@ func (p *Prompter) Resolve(questions []Question) ([]Answer, error) {
 		case Value:
 			fmt.Fprintf(p.Out, "  %s > ", q.Prompt)
 
-			line, ok := readLine(scanner)
+			line, ok, err := readLine(scanner)
+			if err != nil {
+				return answers, fmt.Errorf("converge: reading answer: %w", err)
+			}
 			if !ok {
 				return answers, &UnresolvedError{Questions: questions[i:]}
 			}
@@ -72,10 +85,13 @@ func (p *Prompter) Resolve(questions []Question) ([]Answer, error) {
 	return answers, nil
 }
 
-// readLine returns the next trimmed line, reporting false on EOF or error.
-func readLine(scanner *bufio.Scanner) (string, bool) {
+// readLine returns the next trimmed line. ok=false with a nil error is
+// end-of-input; a non-nil error is a real read failure (including a line
+// beyond the scanner's limit), which must not masquerade as "the human
+// stopped answering".
+func readLine(scanner *bufio.Scanner) (line string, ok bool, err error) {
 	if !scanner.Scan() {
-		return "", false
+		return "", false, scanner.Err()
 	}
-	return strings.TrimSpace(scanner.Text()), true
+	return strings.TrimSpace(scanner.Text()), true, nil
 }
