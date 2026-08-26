@@ -96,18 +96,44 @@ func TestPrompter_EOFReturnsTheRemainderAsUnresolved(t *testing.T) {
 func TestApply_MatchesByKindAndSubject(t *testing.T) {
 	qs := []converge.Question{confirmQ("app-one", false), valueQ("app-two", "")}
 
-	answered, remaining := converge.Apply(qs, []converge.Answer{
-		{Question: converge.Question{Kind: "manual-tag", Subject: "app-two"}, Value: "tag-123"},
-		{Question: converge.Question{Kind: "manual-tag", Subject: "app-nine"}, Value: "ignored"}, // no such question
+	answered, remaining, err := converge.Apply(qs, []converge.Answer{
+		{Question: converge.Question{Kind: "manual-tag", Subject: "app-two", Style: converge.Value}, Value: "tag-123"},
+		{Question: converge.Question{Kind: "manual-tag", Subject: "app-nine", Style: converge.Value}, Value: "ignored"}, // no such question
 	})
+	require.NoError(t, err)
 
 	require.Len(t, answered, 1)
 	assert.Equal(t, "tag-123", answered[0].Value)
-	assert.Equal(t, converge.Value, answered[0].Question.Style,
+	assert.Equal(t, "Enter image tag for app-two", answered[0].Question.Prompt,
 		"the matched answer carries the full Question, not the supplied stub")
 
 	require.Len(t, remaining, 1)
 	assert.Equal(t, "app-one", remaining[0].Subject)
+}
+
+func TestApply_RefusesACrossStyleAnswer(t *testing.T) {
+	// A Value-style stub matched against a Confirm question must error, not
+	// read its zero Confirmed as an explicit decline - a malformed or stale
+	// plan must never silently change a deployment decision.
+	qs := []converge.Question{confirmQ("app-one", false)}
+
+	_, _, err := converge.Apply(qs, []converge.Answer{
+		{Question: converge.Question{Kind: "confirm-trigger", Subject: "app-one", Style: converge.Value}, Value: "tag-123"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to reinterpret")
+}
+
+func TestApply_RefusesAStubWithoutAStyle(t *testing.T) {
+	// The zero Style is deliberately invalid: without this, an
+	// uninitialized stub would impersonate whichever style sits at zero.
+	qs := []converge.Question{confirmQ("app-one", false)}
+
+	_, _, err := converge.Apply(qs, []converge.Answer{
+		{Question: converge.Question{Kind: "confirm-trigger", Subject: "app-one"}, Confirmed: true},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must set Style")
 }
 
 func TestUnresolvedError_ListsEveryQuestion(t *testing.T) {

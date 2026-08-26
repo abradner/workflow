@@ -11,14 +11,35 @@ import (
 	"fmt"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
+// budgetExhaustedType is the stable Temporal error type carried across
+// workflow boundaries - the part of the error's identity that survives
+// serialization.
+const budgetExhaustedType = "PollBudgetExhausted"
+
 // ErrBudgetExhausted reports that the budget ran out before check reported
-// done. Callers distinguish it from a check failure with errors.Is; Until
-// returns the last check's result alongside it, so the caller can report
-// the last-known state ("still running") rather than nothing.
-var ErrBudgetExhausted = errors.New("poll: budget exhausted before completion")
+// done. Until returns the last check's result alongside it, so the caller
+// can report the last-known state ("still running") rather than nothing.
+//
+// Identity: use IsBudgetExhausted, not errors.Is. Within the workflow that
+// called Until, errors.Is works; but when a child workflow returns this
+// error, Temporal serializes it and the parent receives a reconstructed
+// *temporal.ApplicationError - pointer identity is gone, and only the
+// error's Type survives. IsBudgetExhausted checks both.
+var ErrBudgetExhausted = temporal.NewApplicationError("poll: budget exhausted before completion", budgetExhaustedType)
+
+// IsBudgetExhausted reports whether err is (or wraps) budget exhaustion,
+// on either side of a workflow boundary.
+func IsBudgetExhausted(err error) bool {
+	if errors.Is(err, ErrBudgetExhausted) {
+		return true
+	}
+	var appErr *temporal.ApplicationError
+	return errors.As(err, &appErr) && appErr.Type() == budgetExhaustedType
+}
 
 // Until calls check immediately and then every interval until it reports
 // done. The budget bounds SCHEDULING, not completion: no new sleep or check
