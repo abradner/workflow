@@ -60,6 +60,7 @@ done
 here="$(pwd)"
 fixture_repo=$(mktemp -d)
 fixture_scope=$(mktemp -d)
+trap 'rm -rf "$fixture_repo" "$fixture_scope"' EXIT
 git -C "$fixture_repo" init -q -b main
 git -C "$fixture_repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m 'base'
 git -C "$fixture_repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m 'feat(auth): add login'
@@ -70,7 +71,6 @@ git -C "$fixture_repo" -c user.email=t@t -c user.name=t commit -q --allow-empty 
 # comparison below ever runs.
 themes=$(cd "$fixture_repo" && bash "$here/.claude/skills/quality-audit/scope.sh" HEAD~3 HEAD fixture "$fixture_scope" \
   | sed -n '/FEATURE THEMES/,/REVIEW-FEEDBACK/p' | grep -E '^ *[0-9]+ ' | sed -E 's/^ *[0-9]+ //' || true)
-rm -rf "$fixture_repo" "$fixture_scope"
 expected=$(printf 'auth\nchore\n(untyped)')
 if [ "$(echo "$themes" | sort)" != "$(echo "$expected" | sort)" ]; then
   echo "FAIL: FEATURE THEMES classification wrong; got:"

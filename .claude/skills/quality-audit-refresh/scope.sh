@@ -6,6 +6,7 @@
 # chores) excluded — the file every digger and assessor is pointed at.
 set -euo pipefail
 base=${1:?base ref}; target=${2:?target ref}; label=${3:-range}; out=${4:-.}
+[[ "$label" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "fatal: label must match [A-Za-z0-9_.-]+ (no / or ..) — got '$label'" >&2; exit 1; }
 range="$base..$target"
 mkdir -p "$out"
 
