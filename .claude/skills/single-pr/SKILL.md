@@ -73,7 +73,8 @@ findings as they arrive.** Triage by verifying (a finding is a claim), fix, push
 
 - **Re-request review after any substantive push.** Copilot does not re-review a pushed branch on
   its own, so without this the approving verdict you eventually read is about superseded code.
-- **Three reactive rounds, then defer** to the tracker. If this one change draws three or more
+- **Three reactive rounds, then defer** to the tracker (this repo's Notion tasks, per `AGENTS.md`).
+  If this one change draws three or more
   findings, revert it and ticket it — it needs design time, not another patch.
 - Fix bugs with **revert-and-confirm**: write the regression test, confirm it passes with the fix,
   revert just the fix, confirm the test fails *for the right reason*, restore the fix. A test that
@@ -81,8 +82,8 @@ findings as they arrive.** Triage by verifying (a finding is a claim), fix, push
 - Keep the steering docs current **in this PR** if the change moved a boundary or a documented
   behaviour — `AGENTS.md`, and the repo's boundary map if it keeps one. A doc describing a boundary
   that no longer exists is worse than none, because it is trusted.
-- Discovered work that isn't in scope goes to the external tracker, not a PR-body table and not a
-  code comment.
+- Discovered work that isn't in scope goes to the external tracker (Notion tasks, per `AGENTS.md`),
+  not a PR-body table and not a code comment.
 
 ## Phase 5 — Verify, then report ready
 

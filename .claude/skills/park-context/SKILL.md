@@ -61,7 +61,7 @@ Every token spent here is one the handoff can't use. Hard constraints, no except
    it straight into `AGENTS.md`, **Gotchas & Lessons Learned** (environment gotchas go in the same
    numbered list here) now. Otherwise record it in
    the handoff's **Ratchet** section, which the resume skill is required to discharge. Discovered
-   work goes to the external tracker named in `AGENTS.md`, not into the handoff — a handoff is not
+   work goes to the external tracker named in `AGENTS.md` (Notion tasks), not into the handoff — a handoff is not
    a tracker, and it is deleted when the work lands.
 
 4. **Report and stop.** Print the path, a 3–6 line summary of what was parked, and the exact line
@@ -106,7 +106,7 @@ reported success without doing the thing. Saves the next session from re-running
 
 ## Ratchet
 Durable items that must land before this work merges: `AGENTS.md` **Gotchas & Lessons Learned**
-entries, a convention this work proposed for `AGENTS.md`, tracker items not yet filed. Empty is fine; unrecorded is not.
+entries, a convention this work proposed for `AGENTS.md`, Notion tracker items not yet filed. Empty is fine; unrecorded is not.
 
 ## Open questions for the operator
 Things blocked on a human decision. Never resolve these by guessing at park time.

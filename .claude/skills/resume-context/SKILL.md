@@ -27,9 +27,9 @@ discovers an hour later that the tree changed, the branch moved, or the claim wa
    If there is no handoff at all and the operator is referring to prior work, **do not conclude the
    context is gone until you have looked.** A session that forked rather than continued still has
    its raw transcript on disk (`~/.claude/projects/<project>/*.jsonl` — grep or timestamp-match for
-   the predecessor), and anything a commit or PR references by number has its real scope in the
-   tracker (`gh issue view <n>`, not `gh issue list` — titles and "Closes #N" lines compress away
-   exactly the deferred scope that mattered). Check both before saying you can't recover it.
+   the predecessor), and anything a commit or PR references has its real scope in the
+   tracker (this repo's Notion tasks, named in `AGENTS.md` — read the task body, not the list view:
+   titles and one-line summaries compress away exactly the deferred scope that mattered). Check both before saying you can't recover it.
 
 2. **Read it whole, plus `AGENTS.md`.** Both, before touching anything. `AGENTS.md` is the
    authority on how to work here; the handoff is the authority only on what this task is.
@@ -52,7 +52,7 @@ discovers an hour later that the tree changed, the branch moved, or the claim wa
    makes sense, say so and stop rather than improvising a substitute.
 
 5. **Discharge the Ratchet.** The handoff's **Ratchet** section names durable items — `AGENTS.md`
-   **Gotchas & Lessons Learned** entries, a convention this work proposed for `AGENTS.md`, tracker items — that were parked rather
+   **Gotchas & Lessons Learned** entries, a convention this work proposed for `AGENTS.md`, Notion tracker items — that were parked rather
    than filed. Land them, or carry them forward explicitly into the next handoff. A ratchet item
    silently dropped at resume is the failure mode the section exists to prevent: it means the
    lesson was learned, written down twice, and lost anyway.
