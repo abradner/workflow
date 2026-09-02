@@ -508,9 +508,9 @@ flavour current anyway; it remains the degrade path.
   where the target is unambiguous, verify, then merge with no argument:
 
   ```bash
-  gh stack checkout https://github.com/abradner/workflow/pull/<followup>  # URL cannot be misread
-  gh stack view --json                                                    # now describes THIS stack
-  gh stack merge --yes --squash                                           # no argument = current stack
+  gh stack checkout https://github.com/abradner/workflow/pull/NNN  # the followup's PR URL — cannot be misread
+  gh stack view --json                                             # now describes THIS stack
+  gh stack merge --yes --squash                                    # no argument = current stack
   ```
 - **A returned command is not a finished merge.** The merge is
   asynchronous: `gh stack merge` returning proves the request was accepted,
