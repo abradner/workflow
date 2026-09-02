@@ -15,6 +15,10 @@ pmn-kustomize/
 # per-developer local overrides are not.
 .claude/settings.local.json
 
+# Session context handoffs (park-context skill) — local working state, and they
+# can carry session detail that shouldn't land in a public repo's history
+.claude/handoffs/
+
 # Scratch output from agent tooling that writes into the working directory
 # rather than a temp dir. Caught at `git add` once; ignored so it cannot be
 # committed by a broad add next time.
