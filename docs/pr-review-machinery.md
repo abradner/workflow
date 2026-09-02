@@ -18,7 +18,8 @@ Reviewers are not interchangeable and most do **not** fire on their own. Establi
 *what triggers it* and *what it is good for* before you need it.
 
 > **The table below is this repo's verified roster, not the template's default.** It was confirmed
-> against all 32 PRs (#1–#36) on 2026-09-02 across all three surfaces from §2 — a bot that only
+> against all 32 PRs in the #1–#36 number range (the other four numbers are issues) on
+> 2026-09-02, across all three surfaces from §2 — a bot that only
 > leaves inline or issue comments never appears in `pulls/<n>/reviews`, so a reviews-only check can
 > report a reviewer as absent when it is working, or as present when it has only ever errored.
 > Re-run the check before trusting the numbers below: a sibling repo's steering doc once named a
@@ -42,7 +43,7 @@ Reviewers are not interchangeable and most do **not** fire on their own. Establi
 >   (#1, #2, #5, #6, #9, #20, #33), plus an issue-comment-only "didn't find any major issues" pass
 >   on 3 more (#4, #7, #28 — the last in reply to an explicit `@codex review`). 10 of 32 PRs in
 >   total; the other 22 got no Codex pass, and the base branch is not the discriminator (#3, #10,
->   #11, #21, #22, #29, #34 and #36 all target `main` and got none). On #37 (2026-09-02) the
+>   #11, #21, #22, #29, #34 and #36 all target `main` and got none). On #37 — the PR that added this file (2026-09-02) — the
 >   open-trigger fired but Codex only posted an issue comment asking for a cloud environment to be
 >   created for this repo, and did not review — so until one exists, expect no Codex pass at all.
 
