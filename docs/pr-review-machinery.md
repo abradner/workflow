@@ -42,7 +42,9 @@ Reviewers are not interchangeable and most do **not** fire on their own. Establi
 >   (#1, #2, #5, #6, #9, #20, #33), plus an issue-comment-only "didn't find any major issues" pass
 >   on 3 more (#4, #7, #28 — the last in reply to an explicit `@codex review`). 10 of 32 PRs in
 >   total; the other 22 got no Codex pass, and the base branch is not the discriminator (#3, #10,
->   #11, #21, #22, #29, #34 and #36 all target `main` and got none).
+>   #11, #21, #22, #29, #34 and #36 all target `main` and got none). On #37 (2026-09-02) the
+>   open-trigger fired but Codex only posted an issue comment asking for a cloud environment to be
+>   created for this repo, and did not review — so until one exists, expect no Codex pass at all.
 
 | Reviewer | Trigger | Cost | Notes |
 |---|---|---|---|
