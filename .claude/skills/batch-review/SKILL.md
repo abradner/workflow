@@ -485,16 +485,42 @@ flavour current anyway; it remains the degrade path.
   the cap and finish with the manual Phase 7 choreography.
 - **Merge (Phase 7).** GA gives two controls, and **both obey only the
   operator's explicit go-ahead** — `gh pr merge` still refuses stacked PRs,
-  but `gh stack merge <stack-number> --yes --squash` runs the whole train
-  from the CLI (atomic, all-or-nothing, bottom-up, one squash commit per
-  PR; confirmed on batch platform-extraction, which also confirmed head
-  branches are auto-deleted afterwards). Always pass an explicit merge
-  method: without one, --yes silently reuses the last-used method. The web
-  UI's "Squash and merge stack" button remains equivalent. Do **not** use
-  merge-commit mode expecting per-PR merge boundaries: observed (beta), it
-  lands the raw commits under a single wrapper merge of the *top* PR.
-  Pre-flight (followup in the train, followup based on the cap) is
-  unchanged and matters MORE now that the train is one command.
+  but an argument-less `gh stack merge --yes --squash` on the checked-out
+  train runs the whole thing from the CLI (atomic, all-or-nothing,
+  bottom-up, one squash commit per PR; confirmed on batch
+  platform-extraction, which also confirmed head branches are auto-deleted
+  afterwards). Always pass an explicit merge method: without one, --yes
+  silently reuses the last-used method. The web UI's "Squash and merge
+  stack" button remains equivalent. Do **not** use merge-commit mode
+  expecting per-PR merge boundaries: observed (beta), it lands the raw
+  commits under a single wrapper merge of the *top* PR. Pre-flight
+  (followup in the train, followup based on the cap) is unchanged and
+  matters MORE now that the train is one command.
+- **Never pass a bare number to `merge`.** Upstream resolves a bare number
+  *first as a stack number, then as a PR number* — and the two are
+  independent sequences over the same small integers. This repo has already
+  produced the collision: batch platform-extraction ran as **stack #27**,
+  holding PRs #22–#26 and followup #28, while no PR #27 exists at all.
+  Whether a given integer names a stack, a PR, or both is chance, and
+  `gh stack merge <n>` cannot tell you which it picked before it lands a
+  train. Nor can you probe: `merge` takes integers only, and `view` takes
+  no target — it describes the *current local* stack. So name the train
+  where the target is unambiguous, verify, then merge with no argument:
+
+  ```bash
+  gh stack checkout https://github.com/abradner/workflow/pull/NNN  # the followup's PR URL — cannot be misread
+  gh stack view --json                                             # now describes THIS stack
+  gh stack merge --yes --squash                                    # no argument = current stack
+  ```
+- **A returned command is not a finished merge.** The merge is
+  asynchronous: `gh stack merge` returning proves the request was accepted,
+  nothing more. Branch protection is evaluated when the merge runs, not when
+  it is submitted, so a rule failure surfaces later as `failed` (nothing
+  merged — the operation is atomic, read `details.message`). `enqueued` is
+  terminal for the *request*, not a merged state: the train went to the
+  merge queue, which decides the outcome and picks the method regardless of
+  the flag you passed. Confirm `MERGED` on the PRs before reporting a merge,
+  the same way the manual flavour polls `mergedAt`.
 - **Fallback.** If anything breaks mid-batch — extension vanished, stack API
   errors, an operation misbehaves (a conflict prompt is not misbehaviour) —
   degrade once, permanently, for that batch: `gh stack unstack` dissolves the
@@ -522,6 +548,10 @@ flavour current anyway; it remains the degrade path.
   outside the batch — then effective-diff audit afterwards.
 - Merge bottom-up. Never rebase a reviewed branch (manual flavour). Retarget
   each child before deleting its parent's branch.
+- Stacked: checkout the train by PR URL, verify with `gh stack view --json`,
+  then an argument-less `gh stack merge --yes --squash`. Never a bare number
+  (stack #27 vs. no PR #27 — this repo), and a returned command is not a
+  finished merge.
 - Phase 7 needs an explicit, per-batch go-ahead from the human operator — never
   self-initiate the merge train, including under autonomous or auto-mode
   operation.
@@ -567,3 +597,13 @@ This repo's own contribution so far is the Phase 2 example: a fix written
 against a misdiagnosis, where the verification that would have prevented it
 took one command. Add to this section rather than replacing it — the value is
 in the accumulated evidence, not in any single batch.
+
+This file is a deliberate fork of keel's `batch-review` and was
+**hazard-patched, not re-synced**, on 2026-09-02 against keel `0e3a4e80`: the
+bare-number rule, the checkout-by-URL merge procedure and the
+returned-is-not-merged rule were grafted in because this repo runs stacked
+trains for real and the unguarded `gh stack merge <stack-number>` it
+documented is the exact form keel has shown can land a different train.
+Everything else keel changed after the fork point is not here; treat the
+divergence as intentional and evidence-bearing, not as drift to be
+overwritten.
